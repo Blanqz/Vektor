@@ -44,6 +44,7 @@ package Lang.VM.Code is
       Code       : Code_Access := null;
       Frame_Size : Natural := 0;
       Owned_Mask : Interfaces.Unsigned_32 := 0;
+      Flags      : Natural := 0;
    end record;
 
    type Func_Array is array (Positive range <>) of Func_Code;

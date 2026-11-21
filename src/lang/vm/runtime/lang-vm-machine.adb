@@ -358,6 +358,7 @@ package body Lang.VM.Machine is
                               end;
                            end if;
                            -- Drop dispatch is handled by Op_Drop at runtime;
+                           -- here we just mark the value for collection
                            null;
                         end;
                      end if;
@@ -586,7 +587,7 @@ package body Lang.VM.Machine is
    function Alloc_Box (M : in out Machine; P : Process_Access) return Natural is
       S : Natural;
    begin
-      --  Collect rebuilds the free list from scratch, so it is not refilled here.
+      --  Collect rebuilds the free list from scratch, so it's not refilled here.
       if P.Box_Free_Top = 0 then
          Collect (M);
          for I in 1 .. Box_Pool_Size loop
@@ -1436,6 +1437,10 @@ package body Lang.VM.Machine is
                                        Unbox_Int (P, S (Base + Ins.Src2))));
 
                      when Op_Icmp =>
+                        --  Integers (small or boxed) compare by value. Anything
+                        --  else (none, bool, pointers) compares by raw word, so
+                        --  none == none holds and none never equals an integer.
+                        declare
                            WA : constant TW := S (Base + Ins.Src1);
                            WB : constant TW := S (Base + Ins.Src2);
                            R  : Boolean := False;
@@ -1975,6 +1980,7 @@ package body Lang.VM.Machine is
    begin
       Ensure_Compiled (M);
       Spawn_Process (M, Entry_Name, Main_Pid);
+
       M.Thread_Count := Actual_Threads;
       M.Threads.Clear;
       for I in 1 .. Actual_Threads loop
@@ -1997,7 +2003,6 @@ package body Lang.VM.Machine is
          begin
             exit Scheduler_Loop when N = 0;
 
-            
             for Idx in 1 .. N loop
                declare
                   Q : constant Process_Access := M.Processes (Idx);
@@ -2038,6 +2043,7 @@ package body Lang.VM.Machine is
                for T in 1 .. Actual_Threads loop
                   for Other_T in 1 .. Actual_Threads loop
                      if Other_T /= T and then not M.Threads (Other_T).Run_Queue.Is_Empty then
+                        -- Steal first runnable process
                         declare
                            Q : Natural_Vectors.Vector := M.Threads (Other_T).Run_Queue;
                         begin
@@ -2047,6 +2053,7 @@ package body Lang.VM.Machine is
                                  Proc : constant Process_Access := M.Processes (Q (Idx));
                               begin
                                  if Proc.Status = Proc_Runnable then
+                                    -- Steal this process
                                     Proc.Assigned_Thread := T;
                                     M.Threads (T).Run_Queue.Append (Q (Idx));
                                     M.Threads (Other_T).Run_Queue.Delete (Idx);

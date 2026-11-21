@@ -105,6 +105,7 @@ package body Lang.VM.IR is
                      RetCleanRaw : constant String := Trim (RetStr (RetStr'First .. (if RetStr'Last > 0 and then RetStr (RetStr'Last) = '{' then RetStr'Last - 1 else RetStr'Last)));
                      F : Ir_Func;
                      OwnedVal : Natural := 0;
+                     FlagsVal : Natural := 0;
                      RetClean : String := RetCleanRaw;
                      Param_List : constant String := Trim (L (P1 + 1 .. P2 - 1));
                   begin
@@ -122,10 +123,26 @@ package body Lang.VM.IR is
                            OwnedVal := Natural'Value (Trim (RetClean (OwnedPos + 6 .. RetClean'Last)));
                            RetClean := Trim (RetClean (RetClean'First .. OwnedPos - 1));
                         end if;
+                        -- Find flags keyword
+                        declare
+                           FlagsPos : Natural := 0;
+                        begin
+                           for K in RetClean'First .. RetClean'Last - 5 loop
+                              if RetClean (K .. K + 5) = "flags " then
+                                 FlagsPos := K;
+                                 exit;
+                              end if;
+                           end loop;
+                           if FlagsPos > 0 then
+                              FlagsVal := Natural'Value (Trim (RetClean (FlagsPos + 6 .. RetClean'Last)));
+                              RetClean := Trim (RetClean (RetClean'First .. FlagsPos - 1));
+                           end if;
+                        end;
                      end;
                      F.Name := Name;
                      F.Ret_Type := To_Unbounded_String (RetClean);
                      F.Owned_Mask := Interfaces.Unsigned_32 (OwnedVal);
+                     F.Flags := FlagsVal;
                      if Param_List'Length > 0 then
                         declare
                            Start : Natural := Param_List'First;
@@ -845,8 +862,12 @@ package body Lang.VM.IR is
             if I > 1 then Result := Result & ", "; end if;
             Result := Result & F.Params (I).Name & " : " & F.Params (I).Typ;
          end loop;
-         if Natural (F.Owned_Mask) /= 0 then
+         if Natural (F.Owned_Mask) /= 0 and then F.Flags /= 0 then
+            Result := Result & ") -> " & F.Ret_Type & " owned " & Trim (Natural'Image (Natural (F.Owned_Mask))) & " flags " & Trim (Natural'Image (F.Flags)) & " {" & ASCII.LF;
+         elsif Natural (F.Owned_Mask) /= 0 then
             Result := Result & ") -> " & F.Ret_Type & " owned " & Trim (Natural'Image (Natural (F.Owned_Mask))) & " {" & ASCII.LF;
+         elsif F.Flags /= 0 then
+            Result := Result & ") -> " & F.Ret_Type & " flags " & Trim (Natural'Image (F.Flags)) & " {" & ASCII.LF;
          else
             Result := Result & ") -> " & F.Ret_Type & " {" & ASCII.LF;
          end if;

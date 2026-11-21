@@ -64,6 +64,7 @@ package Lang.VM.IR is
       Regs       : Natural := 0;
       Instrs     : Ir_Instr_Vectors.Vector;
       Owned_Mask : Interfaces.Unsigned_32 := 0;
+      Flags      : Natural := 0;
    end record;
 
    package Ir_Func_Vectors is new Ada.Containers.Vectors (Positive, Ir_Func);
