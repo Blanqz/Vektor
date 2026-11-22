@@ -41,6 +41,10 @@ package body Lang.VM.Code is
          return Bi_Read_Int;
       elsif Name = "Decimal.from_int" then
          return Bi_Float_From_Int;
+      elsif Name = "Decimal.to_string" or Name = "Decimal_to_string" then
+         return Bi_Float_To_String;
+      elsif Name = "IO.eputs" or Name = "eputs" then
+         return Bi_Err_Puts;
       elsif Name = "Bit.and" or Name = "Bit_and" or Name = "and" then
          return Bi_Bit_And;
       elsif Name = "Bit.or" or Name = "Bit_or" or Name = "or" then

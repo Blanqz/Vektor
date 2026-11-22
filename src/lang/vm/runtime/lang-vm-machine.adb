@@ -16,7 +16,33 @@ with System;
 with Interfaces.C;
 with Interfaces.C.Strings;
 
+with Ada.Long_Float_Text_IO;
+with Ada.Text_IO;
+
 package body Lang.VM.Machine is
+
+   function Format_Decimal (V : Long_Float) return String is
+      Buf : String (1 .. 400);
+   begin
+      Ada.Long_Float_Text_IO.Put (Buf, V, Aft => 12, Exp => 0);
+      declare
+         S : constant String := Ada.Strings.Fixed.Trim (Buf, Ada.Strings.Both);
+         Last : Natural := S'Last;
+      begin
+         if S'Length = 0 then
+            return "0.0";
+         end if;
+         if (for some C of S => C = '.') then
+            while Last > S'First + 1 and then S (Last) = '0' and then S (Last - 1) /= '.' loop
+               Last := Last - 1;
+            end loop;
+         end if;
+         return S (S'First .. Last);
+      end;
+   exception
+      when Ada.Text_IO.Layout_Error | Constraint_Error =>
+         return Ada.Strings.Fixed.Trim (Long_Float'Image (V), Ada.Strings.Both);
+   end Format_Decimal;
 
    use Lang.VM.Tagged_Word;
 
@@ -1235,6 +1261,39 @@ package body Lang.VM.Machine is
          when VC.Bi_Float_From_Int =>
             if Ins.Args_Count >= 1 then
                Set_Dest (Make_Float (M, P, Long_Float (Unbox_Int (P, Arg (1)))));
+            end if;
+
+         when VC.Bi_Err_Puts =>
+            --  Writes to stderr. Stdout is flushed first so output stays in order
+            --  when both streams go to the same place.
+            if Ins.Args_Count >= 1 then
+               declare
+                  V   : constant TW := Arg (1);
+                  Msg : constant String :=
+                    (if Is_Heap_Pointer (V) then To_String (Chars_Of (P, V))
+                     else Integer'Image (Integer (Unbox_Small_Int (V))));
+               begin
+                  Flush (Standard_Output);
+                  Put_Line (Standard_Error, Msg);
+                  Flush (Standard_Error);
+               end;
+            end if;
+            if Ins.Has_Dest then
+               Set_Dest (Zero);
+            end if;
+
+         when VC.Bi_Float_To_String =>
+            if Ins.Args_Count >= 1 then
+               declare
+                  Img  : constant String := Format_Decimal (Unbox_Float (P, Arg (1)));
+                  Slot : constant Natural := Alloc_Str (M, P);
+               begin
+                  P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
+                  Promote_To_Large (P, Slot);
+                  if Ins.Has_Dest then
+                     Set_Dest (Str_Ptr (Slot));
+                  end if;
+               end;
             end if;
 
          when VC.Bi_Bit_Shr =>
