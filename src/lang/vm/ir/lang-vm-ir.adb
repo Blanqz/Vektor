@@ -732,24 +732,44 @@ package body Lang.VM.IR is
                                           end;
                                        end;
                                     elsif OpTok = "dyn.call" then
-                                       Instr.Op := Op_DynCall;
-                                       declare
-                                          C1, C2 : Natural := 0;
-                                          Nc : Natural := 0;
-                                       begin
-                                          for K in Rest'Range loop
-                                             if Rest (K) = ',' then
-                                                Nc := Nc + 1;
-                                                if Nc = 1 then C1 := K; elsif Nc = 2 then C2 := K; end if;
-                                             end if;
-                                          end loop;
-                                          Instr.Has_Dest := True;
-                                          Instr.Dest := Parse_Reg (Rest (Rest'First .. C1 - 1));
-                                          Instr.Has_Src1 := True;
-                                          Instr.Src1 := Parse_Reg (Rest (C1 + 1 .. C2 - 1));
-                                          Instr.Method_Index := Natural'Value (Trim (Rest (C2 + 1 .. Rest'Last)));
-                                       end;
-                                    elsif OpTok = "func.ref" or OpTok = "closure.new" or OpTok = "func_ref" then
+            Instr.Op := Op_DynCall;
+            declare
+               Comma1 : Natural := 0;
+               Comma2 : Natural := 0;
+            begin
+               for K in Rest'Range loop
+                  if Rest (K) = ',' then
+                     if Comma1 = 0 then
+                        Comma1 := K;
+                     elsif Comma2 = 0 then
+                        Comma2 := K;
+                        exit;
+                     end if;
+                  end if;
+               end loop;
+               Instr.Has_Dest := True;
+               Instr.Dest := Parse_Reg (Rest (Rest'First .. Comma1 - 1));
+               Instr.Has_Src1 := True;
+               Instr.Src1 := Parse_Reg (Rest (Comma1 + 1 .. Comma2 - 1));
+               declare
+                  After : constant String := Trim (Rest (Comma2 + 1 .. Rest'Last));
+                  Start : Natural := After'First;
+                  Index_Read : Boolean := False;
+               begin
+                  for K in After'Range loop
+                     if K = After'Last or else After (K + 1) = ',' then
+                        if Index_Read then
+                           Instr.Args.Append (Parse_Reg (Trim (After (Start .. K))));
+                        else
+                           Instr.Method_Index := Natural'Value (Trim (After (Start .. K)));
+                           Index_Read := True;
+                        end if;
+                        Start := K + 2;
+                     end if;
+                  end loop;
+               end;
+            end;
+         elsif OpTok = "func.ref" or OpTok = "closure.new" or OpTok = "func_ref" then
                                        Instr.Op := Op_FuncRef;
                                        declare
                                           Comma : Natural := 0;

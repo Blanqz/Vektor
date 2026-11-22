@@ -11,6 +11,7 @@ with Lang.VM.IR;            use Lang.VM.IR;
 with Lang.VM.Code;
 with Lang.VM.Tagged_Word;
 with Lang.VM.Box_Header; use Lang.VM.Box_Header;
+with Lang.VM.Platform;
 with System;
 with Interfaces.C;
 with Interfaces.C.Strings;
@@ -26,22 +27,6 @@ package body Lang.VM.Machine is
    use Interfaces.C.Strings;
 
    Zero : constant TW := Make_Small_Int (0);
-
-   function LoadLibraryA (Name : chars_ptr) return System.Address;
-   pragma Import (Stdcall, LoadLibraryA, "LoadLibraryA");
-
-   function GetProcAddress (Module : System.Address; Name : chars_ptr) return System.Address;
-   pragma Import (Stdcall, GetProcAddress, "GetProcAddress");
-
-   function Dlopen (Name : chars_ptr; Flags : int) return System.Address;
-   pragma Import (C, Dlopen, "dlopen");
-   pragma Weak_External (Dlopen);
-   function Dlsym (Handle : System.Address; Name : chars_ptr) return System.Address;
-   pragma Import (C, Dlsym, "dlsym");
-   pragma Weak_External (Dlsym);
-
-   function GetCurrentProcessId return Interfaces.C.unsigned_long;
-   pragma Import (Stdcall, GetCurrentProcessId, "GetCurrentProcessId");
 
    procedure Free_Values is new Ada.Unchecked_Deallocation (Value_Array, Value_Array_Access);
    procedure Free_Natural_Array is new Ada.Unchecked_Deallocation (VC.Natural_Array, VC.Natural_Array_Access);
@@ -676,6 +661,12 @@ package body Lang.VM.Machine is
       return B > 0 and then Lang.VM.Box_Header.Kind_Of (P.Box_Pool (B).Header) = Lang.VM.Box_Header.Kind_Int64;
    end Is_Int_Box;
 
+   function Is_Float_Box (P : Process_Access; W : TW) return Boolean is
+      B : constant Natural := Box_Slot (P, W);
+   begin
+      return B > 0 and then Lang.VM.Box_Header.Kind_Of (P.Box_Pool (B).Header) = Lang.VM.Box_Header.Kind_Float64;
+   end Is_Float_Box;
+
    function Is_Int_Like (P : Process_Access; W : TW) return Boolean is
    begin
       return Is_Small_Int (W) or else Is_Int_Box (P, W);
@@ -991,51 +982,8 @@ package body Lang.VM.Machine is
       return M.Processes.First_Element.Result;
    end Last_Result;
    function Ffi_Address (Name : String) return System.Address is
-      CName : constant chars_ptr := New_String (Name);
-      Addr  : System.Address := System.Null_Address;
-      ModH  : System.Address;
    begin
-      ModH := LoadLibraryA (New_String ("msvcrt.dll"));
-      if ModH /= System.Null_Address then
-         Addr := GetProcAddress (ModH, CName);
-      end if;
-      if Addr = System.Null_Address then
-         ModH := LoadLibraryA (New_String ("kernel32.dll"));
-         if ModH /= System.Null_Address then
-            Addr := GetProcAddress (ModH, CName);
-         end if;
-      end if;
-      if Addr = System.Null_Address then
-         ModH := LoadLibraryA (New_String ("user32.dll"));
-         if ModH /= System.Null_Address then
-            Addr := GetProcAddress (ModH, CName);
-         end if;
-      end if;
-      if Addr = System.Null_Address then
-         ModH := LoadLibraryA (CName);
-         if ModH /= System.Null_Address then
-            Addr := GetProcAddress (ModH, CName);
-         end if;
-      end if;
-      if Addr = System.Null_Address then
-         ModH := Dlopen (CName, 1); -- RTLD_LAZY = 1
-         if ModH /= System.Null_Address then
-            Addr := Dlsym (ModH, CName);
-         end if;
-      end if;
-      if Addr = System.Null_Address then
-         ModH := Dlopen (New_String ("libc.so.6"), 1);
-         if ModH /= System.Null_Address then
-            Addr := Dlsym (ModH, CName);
-         end if;
-      end if;
-      if Addr = System.Null_Address then
-         ModH := Dlopen (New_String ("libm.so.6"), 1);
-         if ModH /= System.Null_Address then
-            Addr := Dlsym (ModH, CName);
-         end if;
-      end if;
-      return Addr;
+      return Lang.VM.Platform.Resolve_Symbol (Name);
    end Ffi_Address;
 
    procedure Run_Builtin (M    : in out Machine;
@@ -1284,6 +1232,11 @@ package body Lang.VM.Machine is
                   end if;
                end if;
             end;
+         when VC.Bi_Float_From_Int =>
+            if Ins.Args_Count >= 1 then
+               Set_Dest (Make_Float (M, P, Long_Float (Unbox_Int (P, Arg (1)))));
+            end if;
+
          when VC.Bi_Bit_Shr =>
             declare
                A : constant Interfaces.Integer_64 := Unbox_Int (P, Arg (1));
@@ -1458,6 +1411,31 @@ package body Lang.VM.Machine is
                                     when Cmp_Gt => R := A > B;
                                     when Cmp_Ge => R := A >= B;
                                  end case;
+                              end;
+                           elsif Is_Float_Box (P, WA) and then Is_Float_Box (P, WB) then
+                              declare
+                                 A : constant Long_Float := Unbox_Float (P, WA);
+                                 B : constant Long_Float := Unbox_Float (P, WB);
+                              begin
+                                 case Ins.Cmp is
+                                    when Cmp_Eq => R := A = B;
+                                    when Cmp_Ne => R := A /= B;
+                                    when Cmp_Lt => R := A < B;
+                                    when Cmp_Le => R := A <= B;
+                                    when Cmp_Gt => R := A > B;
+                                    when Cmp_Ge => R := A >= B;
+                                 end case;
+                              end;
+                           elsif Str_Slot (P, WA) > 0 and then Str_Slot (P, WB) > 0
+                             and then (Ins.Cmp = Cmp_Eq or else Ins.Cmp = Cmp_Ne)
+                           then
+                              declare
+                                 Same : constant Boolean :=
+                                   To_String (P.String_Pool (Str_Slot (P, WA)).Chars)
+                                   = To_String (P.String_Pool (Str_Slot (P, WB)).Chars);
+                              begin
+                                 R := (Same and then Ins.Cmp = Cmp_Eq)
+                                   or else (not Same and then Ins.Cmp = Cmp_Ne);
                               end;
                            else
                               case Ins.Cmp is
@@ -1911,7 +1889,7 @@ package body Lang.VM.Machine is
                                  end;
                               end if;
                            elsif FuncName = "getpid" then
-                              R := Integer_64 (GetCurrentProcessId);
+                              R := Lang.VM.Platform.Current_Process_Id;
                            else
                               if Addr = System.Null_Address then
                                  Put_Line ("ffi: symbol not found " & FuncName);

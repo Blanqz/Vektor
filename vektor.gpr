@@ -2,15 +2,30 @@ project Vektor is
    type Build_Mode_Type is ("debug", "release");
    Build_Mode : Build_Mode_Type := external ("VEKTOR_BUILD", "release");
 
-   for Source_Dirs use ("src", "src/lang", "src/lang/vm", "src/lang/vm/core", "src/lang/vm/ir", "src/lang/vm/runtime", "backend");
+   type Os_Type is ("linux", "windows");
+   Os : Os_Type := external ("VEKTOR_OS", "linux");
+
+   Common_Dirs := ("src", "src/lang", "src/lang/vm", "src/lang/vm/core", "src/lang/vm/ir", "src/lang/vm/runtime", "backend");
+
+   case Os is
+      when "linux" =>
+         for Source_Dirs use Common_Dirs & ("src/lang/vm/runtime/platform/linux");
+      when "windows" =>
+         for Source_Dirs use Common_Dirs & ("src/lang/vm/runtime/platform/windows");
+   end case;
    for Object_Dir use "obj";
+   for Main use ("native_gen.adb", "vm_main.adb");
 
    package Compiler is
       case Build_Mode is
          when "debug" =>
-            for Default_Switches ("Ada") use ("-g", "-O1", "-gnata", "-gnato", "-gnatwa", "-gnatVa");
+            for Default_Switches ("Ada") use ("-gnat2022", "-g", "-O1", "-gnata", "-gnato", "-gnatwa", "-gnatVa");
          when "release" =>
-            for Default_Switches ("Ada") use ("-O3", "-gnatp", "-gnatn");
+            for Default_Switches ("Ada") use ("-gnat2022", "-O3", "-gnatp", "-gnatn");
       end case;
    end Compiler;
+   package Builder is
+      for Executable ("native_gen.adb") use "vektor";
+      for Executable ("vm_main.adb") use "vm_main";
+   end Builder;
 end Vektor;

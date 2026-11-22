@@ -9,7 +9,7 @@ package Lang.VM.Code is
    type Builtin_Id is (Bi_None, Bi_Puts, Bi_Concat, Bi_Len, Bi_Int_To_String,
       Bi_List_Append, Bi_List_Get, Bi_List_Len,
       Bi_String_Get, Bi_String_Slice, Bi_Read_Line, Bi_Read_Int,
-      Bi_Bit_And, Bi_Bit_Or, Bi_Bit_Xor, Bi_Bit_Not, Bi_Bit_Shl, Bi_Bit_Shr);
+      Bi_Bit_And, Bi_Bit_Or, Bi_Bit_Xor, Bi_Bit_Not, Bi_Bit_Shl, Bi_Bit_Shr, Bi_Float_From_Int);
 
    type Code_Instr is record
       Op           : Ir_Op := Op_Label;
