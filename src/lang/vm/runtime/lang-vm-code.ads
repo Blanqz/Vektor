@@ -10,7 +10,12 @@ package Lang.VM.Code is
       Bi_List_Append, Bi_List_Get, Bi_List_Len, Bi_List_Pop, Bi_List_Set,
       Bi_String_Get, Bi_String_Slice, Bi_Read_Line, Bi_Read_Int,
       Bi_Bit_And, Bi_Bit_Or, Bi_Bit_Xor, Bi_Bit_Not, Bi_Bit_Shl, Bi_Bit_Shr, Bi_Float_From_Int,
-      Bi_Float_To_String, Bi_Err_Puts, Bi_Read_File, Bi_Text_Hash);
+      Bi_Float_To_String, Bi_Err_Puts, Bi_Read_File, Bi_Text_Hash,
+      Bi_String_Compare, Bi_String_From_Code, Bi_String_Upper, Bi_String_Lower,
+      Bi_Float_Parse, Bi_Float_Sqrt, Bi_Float_Exp, Bi_Float_Ln, Bi_Float_Sin,
+      Bi_Float_Cos, Bi_Float_Tan, Bi_Float_Atan, Bi_Float_Floor, Bi_Float_Ceil,
+      Bi_Float_Round, Bi_Float_Trunc, Bi_Float_Pow, Bi_Float_Atan2, Bi_Float_To_Int,
+      Bi_Clock_Mono_Ms, Bi_Clock_Sleep_Ms, Bi_Char_To_Text, Bi_Char_Code, Bi_Char_From_Code);
 
    type Code_Instr is record
       Op           : Ir_Op := Op_Label;
