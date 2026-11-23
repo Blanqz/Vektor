@@ -17,7 +17,8 @@ package Lang.VM.Code is
       Bi_Float_Round, Bi_Float_Trunc, Bi_Float_Pow, Bi_Float_Atan2, Bi_Float_To_Int,
       Bi_Clock_Mono_Ms, Bi_Clock_Sleep_Ms, Bi_Char_To_Text, Bi_Char_Code, Bi_Char_From_Code,
       Bi_Os_Write_File, Bi_Os_File_Exists, Bi_Os_List_Dir, Bi_Os_Get_Env, Bi_Os_Cwd,
-      Bi_Os_Remove_File, Bi_Os_Make_Dir,
+      Bi_Os_Remove_File, Bi_Os_Make_Dir, Bi_Os_Append_File, Bi_Os_Copy_File,
+      Bi_Os_Move_File, Bi_Os_File_Size, Bi_Os_Is_Dir,
       Bi_Process_Spawn, Bi_Process_Send, Bi_Process_Try_Receive, Bi_Process_Receive, Bi_Process_Mail_Count,
       Bi_Net_Connect, Bi_Net_Send, Bi_Net_Recv, Bi_Net_Close, Bi_Net_Listen, Bi_Net_Accept);
 

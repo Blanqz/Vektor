@@ -127,6 +127,16 @@ package body Lang.VM.Code is
          return Bi_Os_Remove_File;
       elsif Name = "Os.make_dir" then
          return Bi_Os_Make_Dir;
+      elsif Name = "Os.append_file" then
+         return Bi_Os_Append_File;
+      elsif Name = "Os.copy_file" then
+         return Bi_Os_Copy_File;
+      elsif Name = "Os.move_file" then
+         return Bi_Os_Move_File;
+      elsif Name = "Os.file_size" then
+         return Bi_Os_File_Size;
+      elsif Name = "Os.is_dir" then
+         return Bi_Os_Is_Dir;
       elsif Name = "Process.spawn" then
          return Bi_Process_Spawn;
       elsif Name = "Process.send" then
