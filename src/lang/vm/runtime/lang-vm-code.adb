@@ -113,6 +113,42 @@ package body Lang.VM.Code is
          return Bi_Char_Code;
       elsif Name = "Char.from_code" then
          return Bi_Char_From_Code;
+      elsif Name = "Os.write_file" then
+         return Bi_Os_Write_File;
+      elsif Name = "Os.file_exists" then
+         return Bi_Os_File_Exists;
+      elsif Name = "Os.list_dir" then
+         return Bi_Os_List_Dir;
+      elsif Name = "Os.get_env" then
+         return Bi_Os_Get_Env;
+      elsif Name = "Os.cwd" then
+         return Bi_Os_Cwd;
+      elsif Name = "Os.remove_file" then
+         return Bi_Os_Remove_File;
+      elsif Name = "Os.make_dir" then
+         return Bi_Os_Make_Dir;
+      elsif Name = "Process.spawn" then
+         return Bi_Process_Spawn;
+      elsif Name = "Process.send" then
+         return Bi_Process_Send;
+      elsif Name = "Process.try_receive" then
+         return Bi_Process_Try_Receive;
+      elsif Name = "Process.receive" then
+         return Bi_Process_Receive;
+      elsif Name = "Process.mail_count" then
+         return Bi_Process_Mail_Count;
+      elsif Name = "Net.connect" then
+         return Bi_Net_Connect;
+      elsif Name = "Net.send" then
+         return Bi_Net_Send;
+      elsif Name = "Net.recv" then
+         return Bi_Net_Recv;
+      elsif Name = "Net.close" then
+         return Bi_Net_Close;
+      elsif Name = "Net.listen" then
+         return Bi_Net_Listen;
+      elsif Name = "Net.accept" then
+         return Bi_Net_Accept;
       else
          return Bi_None;
       end if;

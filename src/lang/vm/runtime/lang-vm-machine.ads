@@ -1,4 +1,5 @@
 with Ada.Containers.Vectors;
+with GNAT.Sockets;
 with Ada.Containers.Indefinite_Hashed_Maps;
 with Ada.Strings.Hash;
 with Lang.VM.IR; use Lang.VM.IR;
@@ -153,6 +154,9 @@ package Lang.VM.Machine is
 
    package Process_Vectors is new Ada.Containers.Vectors (Positive, Process_Access);
 
+   type Socket_Access is access GNAT.Sockets.Socket_Type;
+   package Socket_Vectors is new Ada.Containers.Vectors (Positive, Socket_Access);
+   package Bool_Vectors is new Ada.Containers.Vectors (Positive, Boolean);
    type Machine is record
        Modu      : Ir_Module;
        Prog      : Lang.VM.Code.Program;
@@ -171,6 +175,8 @@ package Lang.VM.Machine is
        GC_Safepoint_Pending : Boolean := False;
        Major_GC : Boolean := False;
        GC_Generation : Natural := 0;
+       Net_Sockets : Socket_Vectors.Vector;
+       Net_Active  : Bool_Vectors.Vector;
    end record;
 
    function Func_Index (M : Machine; Name : String) return Natural;

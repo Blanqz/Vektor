@@ -15,7 +15,11 @@ package Lang.VM.Code is
       Bi_Float_Parse, Bi_Float_Sqrt, Bi_Float_Exp, Bi_Float_Ln, Bi_Float_Sin,
       Bi_Float_Cos, Bi_Float_Tan, Bi_Float_Atan, Bi_Float_Floor, Bi_Float_Ceil,
       Bi_Float_Round, Bi_Float_Trunc, Bi_Float_Pow, Bi_Float_Atan2, Bi_Float_To_Int,
-      Bi_Clock_Mono_Ms, Bi_Clock_Sleep_Ms, Bi_Char_To_Text, Bi_Char_Code, Bi_Char_From_Code);
+      Bi_Clock_Mono_Ms, Bi_Clock_Sleep_Ms, Bi_Char_To_Text, Bi_Char_Code, Bi_Char_From_Code,
+      Bi_Os_Write_File, Bi_Os_File_Exists, Bi_Os_List_Dir, Bi_Os_Get_Env, Bi_Os_Cwd,
+      Bi_Os_Remove_File, Bi_Os_Make_Dir,
+      Bi_Process_Spawn, Bi_Process_Send, Bi_Process_Try_Receive, Bi_Process_Receive, Bi_Process_Mail_Count,
+      Bi_Net_Connect, Bi_Net_Send, Bi_Net_Recv, Bi_Net_Close, Bi_Net_Listen, Bi_Net_Accept);
 
    type Code_Instr is record
       Op           : Ir_Op := Op_Label;

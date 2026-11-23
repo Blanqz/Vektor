@@ -28,4 +28,13 @@ project Vektor is
       for Executable ("native_gen.adb") use "vektor";
       for Executable ("vm_main.adb") use "vm_main";
    end Builder;
+
+   package Linker is
+      case Os is
+         when "windows" =>
+            for Default_Switches ("Ada") use ("-lws2_32");
+         when "linux" =>
+            null;
+      end case;
+   end Linker;
 end Vektor;

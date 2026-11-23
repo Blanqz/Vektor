@@ -21,6 +21,9 @@ with Interfaces.C.Strings;
 
 with Ada.Streams;
 with Ada.Streams.Stream_IO;
+with Ada.Directories;
+with Ada.Environment_Variables;
+with GNAT.Sockets;
 with Ada.Long_Float_Text_IO;
 with Ada.Text_IO;
 
@@ -1222,9 +1225,6 @@ package body Lang.VM.Machine is
                     (if Arg (1) = Make_None then "none"
                      else Ada.Strings.Fixed.Trim (Integer_64'Image (Unbox_Small_Int (Arg (1))),
                                                   Ada.Strings.Left));
-                    (if Arg (1) = Make_None then "none"
-                     else Ada.Strings.Fixed.Trim (Integer_64'Image (Unbox_Small_Int (Arg (1))),
-                                                  Ada.Strings.Left));
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
                   P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
@@ -1520,9 +1520,6 @@ package body Lang.VM.Machine is
                   Img  : constant String :=
                     (if Arg (1) = Make_None then "none"
                      else Format_Decimal (Unbox_Float (P, Arg (1))));
-                  Img  : constant String :=
-                    (if Arg (1) = Make_None then "none"
-                     else Format_Decimal (Unbox_Float (P, Arg (1))));
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
                   P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
@@ -1755,8 +1752,399 @@ package body Lang.VM.Machine is
                end if;
             end if;
 
+         when VC.Bi_Os_Write_File =>
+            declare
+               Path : constant String :=
+                 (if Ins.Args_Count >= 1 then To_String (Chars_Of (P, Arg (1))) else "");
+               Content : constant String :=
+                 (if Ins.Args_Count >= 2 then To_String (Chars_Of (P, Arg (2))) else "");
+               SF : Ada.Streams.Stream_IO.File_Type;
+               Ok  : Boolean := True;
+            begin
+               begin
+                  Ada.Streams.Stream_IO.Create (SF, Ada.Streams.Stream_IO.Out_File, Path);
+                  if Content'Length > 0 then
+                     declare
+                        Buf : Ada.Streams.Stream_Element_Array (1 .. Content'Length);
+                     begin
+                        for I in Content'Range loop
+                           Buf (Ada.Streams.Stream_Element_Offset (I - Content'First + 1)) := Ada.Streams.Stream_Element (Character'Pos (Content (I)));
+                        end loop;
+                        Ada.Streams.Stream_IO.Write (SF, Buf);
+                     end;
+                  end if;
+                  Ada.Streams.Stream_IO.Close (SF);
+               exception
+                  when others =>
+                     Ok := False;
+                     Put_Line (Standard_Error, "cannot write file: " & Path);
+               end;
+               if Ins.Has_Dest then
+                  Set_Dest (Make_Bool (Ok));
+               end if;
+            end;
+
+         when VC.Bi_Os_File_Exists =>
+            declare
+               Path : constant String :=
+                 (if Ins.Args_Count >= 1 then To_String (Chars_Of (P, Arg (1))) else "");
+               Ok : Boolean := False;
+            begin
+               Ok := Ada.Directories.Exists (Path);
+               if Ins.Has_Dest then
+                  Set_Dest (Make_Bool (Ok));
+               end if;
+            end;
+
+         when VC.Bi_Os_List_Dir =>
+            declare
+               Path : constant String :=
+                 (if Ins.Args_Count >= 1 then To_String (Chars_Of (P, Arg (1))) else ".");
+               Content : Unbounded_String := To_Unbounded_String ("");
+               First : Boolean := True;
+               Iter : Ada.Directories.Search_Type;
+               E : Ada.Directories.Directory_Entry_Type;
+            begin
+               begin
+                  Ada.Directories.Start_Search (Iter, Path, "");
+                  while Ada.Directories.More_Entries (Iter) loop
+                     Ada.Directories.Get_Next_Entry (Iter, E);
+                     declare
+                        Nm : constant String := Ada.Directories.Simple_Name (E);
+                     begin
+                        if Nm /= "." and then Nm /= ".." then
+                           if not First then Append (Content, Character'Val (10)); end if;
+                           First := False;
+                           Append (Content, Nm);
+                        end if;
+                     end;
+                  end loop;
+                  Ada.Directories.End_Search (Iter);
+               exception
+                  when others =>
+                     Put_Line (Standard_Error, "cannot list dir: " & Path);
+               end;
+               declare
+                  Slot : constant Natural := Alloc_Str (M, P);
+               begin
+                  P.String_Pool (Slot).Chars := Content;
+                  Promote_To_Large (P, Slot);
+                  if Ins.Has_Dest then
+                     Set_Dest (Str_Ptr (Slot));
+                  end if;
+               end;
+            end;
+
+         when VC.Bi_Os_Get_Env =>
+            declare
+               Name : constant String :=
+                 (if Ins.Args_Count >= 1 then To_String (Chars_Of (P, Arg (1))) else "");
+               Val  : Unbounded_String := To_Unbounded_String ("");
+            begin
+               begin
+                  Val := To_Unbounded_String (Ada.Environment_Variables.Value (Name));
+               exception
+                  when others =>
+                     Val := To_Unbounded_String ("");
+               end;
+               declare
+                  Slot : constant Natural := Alloc_Str (M, P);
+               begin
+                  P.String_Pool (Slot).Chars := Val;
+                  Promote_To_Large (P, Slot);
+                  if Ins.Has_Dest then
+                     Set_Dest (Str_Ptr (Slot));
+                  end if;
+               end;
+            end;
+
+         when VC.Bi_Os_Cwd =>
+            declare
+               Cwd  : constant String := Ada.Directories.Current_Directory;
+               Slot : constant Natural := Alloc_Str (M, P);
+            begin
+               P.String_Pool (Slot).Chars := To_Unbounded_String (Cwd);
+               Promote_To_Large (P, Slot);
+               if Ins.Has_Dest then
+                  Set_Dest (Str_Ptr (Slot));
+               end if;
+            end;
+
+         when VC.Bi_Os_Remove_File =>
+            declare
+               Path : constant String :=
+                 (if Ins.Args_Count >= 1 then To_String (Chars_Of (P, Arg (1))) else "");
+               Ok : Boolean := True;
+            begin
+               begin
+                  Ada.Directories.Delete_File (Path);
+               exception
+                  when others =>
+                     Ok := False;
+               end;
+               if Ins.Has_Dest then
+                  Set_Dest (Make_Bool (Ok));
+               end if;
+            end;
+
+         when VC.Bi_Os_Make_Dir =>
+            declare
+               Path : constant String :=
+                 (if Ins.Args_Count >= 1 then To_String (Chars_Of (P, Arg (1))) else "");
+               Ok : Boolean := True;
+            begin
+               begin
+                  Ada.Directories.Create_Directory (Path);
+               exception
+                  when others =>
+                     Ok := False;
+               end;
+               if Ins.Has_Dest then
+                  Set_Dest (Make_Bool (Ok));
+               end if;
+            end;
+
+         when VC.Bi_Process_Spawn =>
+            declare
+               Name : constant String :=
+                 (if Ins.Args_Count >= 1 then To_String (Chars_Of (P, Arg (1))) else "");
+               NewPid : Natural;
+               T      : Natural := 1;
+            begin
+               Spawn_Process (M, Name, NewPid);
+               for I in 2 .. M.Thread_Count loop
+                  if Natural (M.Threads (I).Run_Queue.Length) < Natural (M.Threads (T).Run_Queue.Length) then
+                     T := I;
+                  end if;
+               end loop;
+               M.Processes (NewPid).Assigned_Thread := T;
+               M.Threads (T).Run_Queue.Append (NewPid);
+               if Ins.Has_Dest then
+                  Set_Dest (Make_Small_Int (Integer_64 (NewPid)));
+               end if;
+            end;
+
+         when VC.Bi_Process_Send =>
+            declare
+               Target : constant Process_Access :=
+                 (if Ins.Args_Count >= 1 then Find_Process (M, Natural (Unbox_Int (P, Arg (1)))) else null);
+            begin
+               if Target /= null and then Ins.Args_Count >= 2 then
+                  Mail_Push (Target, Deep_Copy (M, P, Target, Arg (2)));
+                  if Target.Status = Proc_Blocked then
+                     Target.Status := Proc_Runnable;
+                  end if;
+               end if;
+               if Ins.Has_Dest then
+                  Set_Dest (Make_Bool (Target /= null));
+               end if;
+            end;
+
+         when VC.Bi_Process_Receive =>
+            begin
+               if P.Mail_Count > 0 then
+                  if Ins.Has_Dest then
+                     Set_Dest (Mail_Pop (P));
+                  end if;
+               else
+                  if P.Depth > 0 then
+                     P.Frames (P.Depth).Pc := P.Frames (P.Depth).Pc - 1;
+                  end if;
+                  P.Status := Proc_Blocked;
+                  if P.Blocked_Until = 0 then
+                     P.Blocked_Until := Natural'Last;
+                  end if;
+               end if;
+            end;
+
+         when VC.Bi_Process_Try_Receive =>
+            begin
+               if P.Mail_Count > 0 then
+                  if Ins.Has_Dest then
+                     Set_Dest (Mail_Pop (P));
+                  end if;
+               else
+                  if Ins.Has_Dest then
+                     Set_Dest (Make_None);
+                  end if;
+               end if;
+            end;
+
+         when VC.Bi_Process_Mail_Count =>
+            if Ins.Has_Dest then
+               Set_Dest (Make_Small_Int (Integer_64 (P.Mail_Count)));
+            end if;
+
+         when VC.Bi_Net_Connect =>
+            declare
+               Host : constant String :=
+                 (if Ins.Args_Count >= 1 then To_String (Chars_Of (P, Arg (1))) else "localhost");
+               Port : constant Integer :=
+                 (if Ins.Args_Count >= 2 then Integer (Unbox_Int (P, Arg (2))) else 0);
+               Sock : GNAT.Sockets.Socket_Type;
+               Addr : GNAT.Sockets.Sock_Addr_Type;
+               Ok   : Boolean := True;
+               H    : Natural := 0;
+            begin
+               begin
+                  GNAT.Sockets.Create_Socket (Sock);
+                  Addr.Addr := GNAT.Sockets.Inet_Addr (Host);
+                  Addr.Port := GNAT.Sockets.Port_Type (Port);
+                  GNAT.Sockets.Connect_Socket (Sock, Addr);
+                  M.Net_Sockets.Append (new GNAT.Sockets.Socket_Type'(Sock));
+                  M.Net_Active.Append (True);
+                  H := Natural (M.Net_Sockets.Length);
+               exception
+                  when others =>
+                     Ok := False;
+                     begin GNAT.Sockets.Close_Socket (Sock); exception when others => null; end;
+               end;
+               if Ins.Has_Dest then
+                  if Ok then Set_Dest (Make_Small_Int (Integer_64 (H)));
+                  else Set_Dest (Make_Small_Int (0)); end if;
+               end if;
+            end;
+
+         when VC.Bi_Net_Send =>
+            declare
+               H    : constant Integer :=
+                 (if Ins.Args_Count >= 1 then Integer (Unbox_Int (P, Arg (1))) else 0);
+               Data : constant String :=
+                 (if Ins.Args_Count >= 2 then To_String (Chars_Of (P, Arg (2))) else "");
+               Last : Ada.Streams.Stream_Element_Offset;
+               Buf  : Ada.Streams.Stream_Element_Array (1 .. Data'Length);
+               Sock : GNAT.Sockets.Socket_Type;
+               Ok   : Boolean := False;
+            begin
+               if H >= 1 and then H <= Natural (M.Net_Sockets.Length) and then M.Net_Active (H) then
+                  Sock := M.Net_Sockets (H).all;
+                  for I in Data'Range loop
+                     Buf (Ada.Streams.Stream_Element_Offset (I - Data'First + 1)) := Ada.Streams.Stream_Element (Character'Pos (Data (I)));
+                  end loop;
+                  begin
+                     GNAT.Sockets.Send_Socket (Sock, Buf, Last);
+                     Ok := True;
+                  exception
+                     when others => Ok := False;
+                  end;
+               end if;
+               if Ins.Has_Dest then
+                  if Ok then Set_Dest (Make_Small_Int (Integer_64 (Last)));
+                  else Set_Dest (Make_Small_Int (-1)); end if;
+               end if;
+            end;
+
+         when VC.Bi_Net_Recv =>
+            declare
+               H       : constant Integer :=
+                 (if Ins.Args_Count >= 1 then Integer (Unbox_Int (P, Arg (1))) else 0);
+               Sock    : GNAT.Sockets.Socket_Type;
+               Buf     : Ada.Streams.Stream_Element_Array (1 .. 4096);
+               Last    : Ada.Streams.Stream_Element_Offset;
+               Content : Unbounded_String := To_Unbounded_String ("");
+            begin
+               if H >= 1 and then H <= Natural (M.Net_Sockets.Length) and then M.Net_Active (H) then
+                  Sock := M.Net_Sockets (H).all;
+                  begin
+                     GNAT.Sockets.Receive_Socket (Sock, Buf, Last);
+                     for I in 1 .. Last loop
+                        Append (Content, Character'Val (Integer (Buf (I))));
+                     end loop;
+                  exception
+                     when others => null;
+                  end;
+               end if;
+               declare
+                  Slot : constant Natural := Alloc_Str (M, P);
+               begin
+                  P.String_Pool (Slot).Chars := Content;
+                  Promote_To_Large (P, Slot);
+                  if Ins.Has_Dest then
+                     Set_Dest (Str_Ptr (Slot));
+                  end if;
+               end;
+            end;
+
+         when VC.Bi_Net_Close =>
+            declare
+               H : constant Integer :=
+                 (if Ins.Args_Count >= 1 then Integer (Unbox_Int (P, Arg (1))) else 0);
+            begin
+               if H >= 1 and then H <= Natural (M.Net_Sockets.Length) and then M.Net_Active (H) then
+                  begin
+                     GNAT.Sockets.Close_Socket (M.Net_Sockets (H).all);
+                  exception
+                     when others => null;
+                  end;
+                  M.Net_Active (H) := False;
+               end if;
+               if Ins.Has_Dest then
+                  Set_Dest (Make_Bool (True));
+               end if;
+            end;
+
+         when VC.Bi_Net_Listen =>
+            declare
+               Port : constant Integer :=
+                 (if Ins.Args_Count >= 1 then Integer (Unbox_Int (P, Arg (1))) else 0);
+               Sock : GNAT.Sockets.Socket_Type;
+               Addr : GNAT.Sockets.Sock_Addr_Type;
+               Ok   : Boolean := True;
+               H    : Natural := 0;
+            begin
+               begin
+                  GNAT.Sockets.Create_Socket (Sock, GNAT.Sockets.Family_Inet, GNAT.Sockets.Socket_Stream);
+                  Addr.Addr := GNAT.Sockets.Any_Inet_Addr;
+                  Addr.Port := GNAT.Sockets.Port_Type (Port);
+                  GNAT.Sockets.Bind_Socket (Sock, Addr);
+                  GNAT.Sockets.Listen_Socket (Sock);
+                  M.Net_Sockets.Append (new GNAT.Sockets.Socket_Type'(Sock));
+                  M.Net_Active.Append (True);
+                  H := Natural (M.Net_Sockets.Length);
+               exception
+                  when others =>
+                     Ok := False;
+                     begin GNAT.Sockets.Close_Socket (Sock); exception when others => null; end;
+               end;
+               if Ins.Has_Dest then
+                  if Ok then Set_Dest (Make_Small_Int (Integer_64 (H)));
+                  else Set_Dest (Make_Small_Int (0)); end if;
+               end if;
+            end;
+
+         when VC.Bi_Net_Accept =>
+            declare
+               H        : constant Integer :=
+                 (if Ins.Args_Count >= 1 then Integer (Unbox_Int (P, Arg (1))) else 0);
+               Listener : GNAT.Sockets.Socket_Type;
+               Client   : GNAT.Sockets.Socket_Type;
+               Addr     : GNAT.Sockets.Sock_Addr_Type;
+               Ok       : Boolean := True;
+               NH       : Natural := 0;
+            begin
+               if H >= 1 and then H <= Natural (M.Net_Sockets.Length) and then M.Net_Active (H) then
+                  Listener := M.Net_Sockets (H).all;
+                  begin
+                     GNAT.Sockets.Accept_Socket (Listener, Client, Addr);
+                     M.Net_Sockets.Append (new GNAT.Sockets.Socket_Type'(Client));
+                     M.Net_Active.Append (True);
+                     NH := Natural (M.Net_Sockets.Length);
+                  exception
+                     when others => Ok := False;
+                  end;
+               else
+                  Ok := False;
+               end if;
+               if Ins.Has_Dest then
+                  if Ok then Set_Dest (Make_Small_Int (Integer_64 (NH)));
+                  else Set_Dest (Make_Small_Int (0)); end if;
+               end if;
+            end;
+
          when VC.Bi_None =>
             null;
+
+
       end case;
    end Run_Builtin;
    procedure Run_Slice (M : in out Machine; P : Process_Access) is
