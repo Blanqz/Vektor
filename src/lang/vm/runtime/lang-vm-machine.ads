@@ -27,12 +27,12 @@ package Lang.VM.Machine is
 
    Heap_Exhausted : exception;
 
-   Pool_Size        : constant := 4096;
-   Object_Pool_Size : constant := 1024;
-   VTable_Pool_Size : constant := 256;
-   Box_Pool_Size    : constant := 1024;
+   Pool_Size        : constant := 512;   
+   Object_Pool_Size : constant := 256;   
+   VTable_Pool_Size : constant := 64;    
+   Box_Pool_Size    : constant := 256;   
 
-   --  N6 function level flags
+   
    Flag_No_Alias     : constant := 1;
    Flag_No_Null      : constant := 2;
    Flag_No_Overflow  : constant := 4;
@@ -65,7 +65,8 @@ package Lang.VM.Machine is
        Buf_Id : Natural := 0;
        Gen    : Natural := 0;
    end record;
-   type Str_Pool_Type is array (1 .. Pool_Size) of Str_Entry;
+   type Str_Pool_Array is array (Positive range <>) of Str_Entry;
+   type Str_Pool_Access is access Str_Pool_Array;
 
    Large_Buffer_Threshold : constant := 256;
 
@@ -87,14 +88,16 @@ package Lang.VM.Machine is
       Pinned    : Boolean := False;
       Gen       : Natural := 0;
    end record;
-   type Obj_Pool_Type is array (1 .. Object_Pool_Size) of Obj_Entry;
+   type Obj_Pool_Array is array (Positive range <>) of Obj_Entry;
+   type Obj_Pool_Access is access Obj_Pool_Array;
 
    type VTable_Entry is record
       Methods : VC.Natural_Array_Access := null;
       In_Use  : Boolean := False;
       Marked  : Boolean := False;
    end record;
-   type VTable_Pool_Type is array (1 .. VTable_Pool_Size) of VTable_Entry;
+   type VTable_Pool_Array is array (Positive range <>) of VTable_Entry;
+   type VTable_Pool_Access is access VTable_Pool_Array;
 
    type Box_Entry is record
       Header  : Lang.VM.Box_Header.Box_Header := Lang.VM.Box_Header.Make (Lang.VM.Box_Header.Kind_Int64);
@@ -103,32 +106,32 @@ package Lang.VM.Machine is
       Marked  : Boolean := False;
       Gen     : Natural := 0;
    end record;
-   type Box_Pool_Type is array (1 .. Box_Pool_Size) of Box_Entry;
+   type Box_Pool_Array is array (Positive range <>) of Box_Entry;
+   type Box_Pool_Access is access Box_Pool_Array;
 
-   type Str_Free_Array is array (1 .. Pool_Size) of Natural;
-   type Obj_Free_Array is array (1 .. Object_Pool_Size) of Natural;
-   type VT_Free_Array is array (1 .. VTable_Pool_Size) of Natural;
-   type Box_Free_Array is array (1 .. Box_Pool_Size) of Natural;
+   type Index_Array is array (Positive range <>) of Natural;
+   type Index_Array_Access is access Index_Array;
 
    type Process;
    type Process_Access is access all Process;
 
    type Process is record
       Id         : Natural := 0;
-       String_Pool : Str_Pool_Type := [others => (Chars => To_Unbounded_String (""), In_Use => False, Marked => False,
-         Pinned => False, Large => False, Buf_Id => 0, Gen => 0)];
-       Object_Pool : Obj_Pool_Type := [others => (Type_Name => To_Unbounded_String (""), Drop => 0, Count => 0,
-         Fields => null, In_Use => False, Marked => False, Pinned => False, Gen => 0)];
-       VTable_Pool : VTable_Pool_Type := [others => (Methods => null, In_Use => False, Marked => False)];
-       Str_Free     : Str_Free_Array := [others => 0];
+       String_Pool  : Str_Pool_Access := null;
+       Str_Cap      : Natural := 0;
+       Object_Pool  : Obj_Pool_Access := null;
+       Obj_Cap      : Natural := 0;
+       VTable_Pool  : VTable_Pool_Access := null;
+       VT_Cap       : Natural := 0;
+       Box_Pool     : Box_Pool_Access := null;
+       Box_Cap      : Natural := 0;
+       Str_Free     : Index_Array_Access := null;
        Str_Free_Top : Natural := 0;
-       Obj_Free     : Obj_Free_Array := [others => 0];
+       Obj_Free     : Index_Array_Access := null;
        Obj_Free_Top : Natural := 0;
-       VT_Free      : VT_Free_Array := [others => 0];
+       VT_Free      : Index_Array_Access := null;
        VT_Free_Top  : Natural := 0;
-       Box_Pool     : Box_Pool_Type := [others => (Header => Make (Kind_Int64), Value => 0, In_Use => False,
-         Marked => False, Gen => 0)];
-       Box_Free     : Box_Free_Array := [others => 0];
+       Box_Free     : Index_Array_Access := null;
        Box_Free_Top : Natural := 0;
        Large_Buffers : Large_Buffer_Array_Access := null;
        Status     : Process_Status := Proc_Runnable;
