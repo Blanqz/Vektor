@@ -5,6 +5,8 @@ with Ada.Command_Line;
 with Interfaces; use Interfaces;
 with Lang.VM.IR; use Lang.VM.IR;
 with Ada.Unchecked_Conversion;
+with Native_Helpers; use Native_Helpers;
+with Native_Builtins; use Native_Builtins;
 
 procedure Native_Gen is
    F : File_Type;
@@ -20,51 +22,8 @@ procedure Native_Gen is
    Crosses_Call : array (0 .. 1024) of Boolean := (others => False);
    Last_Use_Map : array (0 .. 1024) of Natural := (others => 0);
 
-   function Sanitize (S : String) return String is
-      R : Unbounded_String := To_Unbounded_String ("");
-   begin
-      for C of S loop
-         if C = '.' then
-            Append (R, '_');
-         else
-            Append (R, C);
-         end if;
-      end loop;
-      return To_String (R);
-   end Sanitize;
 
-   function Float_Bits (V : Long_Float) return Unsigned_64 is
-      function Cast is new Ada.Unchecked_Conversion (Long_Float, Unsigned_64);
-   begin
-      return Cast (V);
-   end Float_Bits;
 
-   function Escape_Asciz (S : String) return String is
-      R : Unbounded_String := To_Unbounded_String ("");
-   begin
-      for C of S loop
-         case C is
-            when '"' =>
-               Append (R, '\');
-               Append (R, '"');
-            when '\' =>
-               Append (R, '\');
-               Append (R, '\');
-            when ASCII.LF =>
-               Append (R, '\');
-               Append (R, 'n');
-            when ASCII.CR =>
-               Append (R, '\');
-               Append (R, 'r');
-            when ASCII.HT =>
-               Append (R, '\');
-               Append (R, 't');
-            when others =>
-               Append (R, C);
-         end case;
-      end loop;
-      return To_String (R);
-   end Escape_Asciz;
 
    function Operand (R : Natural) return String is
    begin
@@ -623,17 +582,7 @@ begin
                         Callee : constant String := To_String (Ins.Func_Name);
                         Target : Unbounded_String := To_Unbounded_String (Callee);
                      begin
-                        if Callee = "IO.puts" or Callee = "puts" then
-                           Target := To_Unbounded_String ("vect_puts");
-                        elsif Callee = "Int.to_string" or Callee = "to_string" then
-                           Target := To_Unbounded_String ("vect_int_to_string");
-                        elsif Callee = "String.concat" or Callee = "concat" then
-                           Target := To_Unbounded_String ("vect_concat");
-                        elsif Callee = "String.len" or Callee = "len" then
-                           Target := To_Unbounded_String ("vect_len");
-                        else
-                           Target := To_Unbounded_String (Sanitize (Callee));
-                        end if;
+                        Target := To_Unbounded_String (Map_Builtin (Callee));
                         if Natural (Ins.Args.Length) >= 1 then
                            Put_Line (Out_F, "    mov rcx, " & Operand (Ins.Args (1)));
                         end if;

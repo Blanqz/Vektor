@@ -66,8 +66,11 @@ package Lang.VM.Machine is
        Buf_Id : Natural := 0;
        Gen    : Natural := 0;
    end record;
-   type Str_Pool_Array is array (Positive range <>) of Str_Entry;
-   type Str_Pool_Access is access Str_Pool_Array;
+   Str_Chunk_Size : constant := 512;
+   type Str_Chunk is array (1 .. Str_Chunk_Size) of aliased Str_Entry;
+   type Str_Chunk_Access is access Str_Chunk;
+   package Str_Chunk_Vectors is new Ada.Containers.Vectors (Positive, Str_Chunk_Access);
+   subtype Str_Pool_Access is Str_Chunk_Vectors.Vector;
 
    Large_Buffer_Threshold : constant := 256;
 
@@ -89,16 +92,22 @@ package Lang.VM.Machine is
       Pinned    : Boolean := False;
       Gen       : Natural := 0;
    end record;
-   type Obj_Pool_Array is array (Positive range <>) of Obj_Entry;
-   type Obj_Pool_Access is access Obj_Pool_Array;
+   Obj_Chunk_Size : constant := 256;
+   type Obj_Chunk is array (1 .. Obj_Chunk_Size) of aliased Obj_Entry;
+   type Obj_Chunk_Access is access Obj_Chunk;
+   package Obj_Chunk_Vectors is new Ada.Containers.Vectors (Positive, Obj_Chunk_Access);
+   subtype Obj_Pool_Access is Obj_Chunk_Vectors.Vector;
 
    type VTable_Entry is record
       Methods : VC.Natural_Array_Access := null;
       In_Use  : Boolean := False;
       Marked  : Boolean := False;
    end record;
-   type VTable_Pool_Array is array (Positive range <>) of VTable_Entry;
-   type VTable_Pool_Access is access VTable_Pool_Array;
+   VT_Chunk_Size : constant := 64;
+   type VT_Chunk is array (1 .. VT_Chunk_Size) of aliased VTable_Entry;
+   type VT_Chunk_Access is access VT_Chunk;
+   package VT_Chunk_Vectors is new Ada.Containers.Vectors (Positive, VT_Chunk_Access);
+   subtype VTable_Pool_Access is VT_Chunk_Vectors.Vector;
 
    type Box_Entry is record
       Header  : Lang.VM.Box_Header.Box_Header := Lang.VM.Box_Header.Make (Lang.VM.Box_Header.Kind_Int64);
@@ -107,8 +116,11 @@ package Lang.VM.Machine is
       Marked  : Boolean := False;
       Gen     : Natural := 0;
    end record;
-   type Box_Pool_Array is array (Positive range <>) of Box_Entry;
-   type Box_Pool_Access is access Box_Pool_Array;
+   Box_Chunk_Size : constant := 256;
+   type Box_Chunk is array (1 .. Box_Chunk_Size) of aliased Box_Entry;
+   type Box_Chunk_Access is access Box_Chunk;
+   package Box_Chunk_Vectors is new Ada.Containers.Vectors (Positive, Box_Chunk_Access);
+   subtype Box_Pool_Access is Box_Chunk_Vectors.Vector;
 
    type Index_Array is array (Positive range <>) of Natural;
    type Index_Array_Access is access Index_Array;
@@ -118,13 +130,13 @@ package Lang.VM.Machine is
 
    type Process is record
       Id         : Natural := 0;
-       String_Pool  : Str_Pool_Access := null;
+       String_Pool  : Str_Chunk_Vectors.Vector;
        Str_Cap      : Natural := 0;
-       Object_Pool  : Obj_Pool_Access := null;
+       Object_Pool  : Obj_Chunk_Vectors.Vector;
        Obj_Cap      : Natural := 0;
-       VTable_Pool  : VTable_Pool_Access := null;
+       VTable_Pool  : VT_Chunk_Vectors.Vector;
        VT_Cap       : Natural := 0;
-       Box_Pool     : Box_Pool_Access := null;
+       Box_Pool     : Box_Chunk_Vectors.Vector;
        Box_Cap      : Natural := 0;
        Str_Free     : Index_Array_Access := null;
        Str_Free_Top : Natural := 0;
@@ -175,6 +187,8 @@ package Lang.VM.Machine is
        GC_Safepoint_Pending : Boolean := False;
        Major_GC : Boolean := False;
        GC_Generation : Natural := 0;
+       Initial_Memory : Natural := 1024;
+       Max_Memory : Natural := 0;
        Net_Sockets : Socket_Vectors.Vector;
        Net_Active  : Bool_Vectors.Vector;
    end record;
@@ -205,4 +219,5 @@ package Lang.VM.Machine is
    function Unbox_Int (P : Process_Access; W : TW) return Interfaces.Integer_64;
    function Is_Int_Box (P : Process_Access; W : TW) return Boolean;
 
+   function Str_At (P : Process_Access; I : Natural) return access Str_Entry;
 end Lang.VM.Machine;

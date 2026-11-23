@@ -17,6 +17,8 @@ procedure VM_Main is
    Gc_Stress : Natural := 0;
    Verify : Boolean := False;
    Thread_Count : Natural := 1;
+   Initial_Memory : Natural := 1024;
+   Max_Memory : Natural := 0;
    Profile : Unbounded_String := To_Unbounded_String ("");
    Source_Roots : Unbounded_String := To_Unbounded_String ("");
 
@@ -82,6 +84,20 @@ begin
             end if;
             Thread_Count := Natural'Value (Ada.Command_Line.Argument (I + 1));
             I := I + 2;
+         elsif Arg = "--initial-memory" then
+            if I = Ada.Command_Line.Argument_Count then
+               Put_Line ("usage: vm [--initial-memory N] <file.ir>");
+               return;
+            end if;
+            Initial_Memory := Natural'Value (Ada.Command_Line.Argument (I + 1));
+            I := I + 2;
+         elsif Arg = "--max-memory" then
+            if I = Ada.Command_Line.Argument_Count then
+               Put_Line ("usage: vm [--max-memory N] <file.ir>");
+               return;
+            end if;
+            Max_Memory := Natural'Value (Ada.Command_Line.Argument (I + 1));
+            I := I + 2;
          elsif Arg = "--project" then
             if I = Ada.Command_Line.Argument_Count then
                Put_Line ("usage: vm [--project <file.vktproj>] <file.ir>");
@@ -123,6 +139,8 @@ begin
    begin
       Mach.GC_Stress_Interval := Gc_Stress;
       Mach.Verify_Roots := Verify;
+      Mach.Initial_Memory := Initial_Memory;
+      Mach.Max_Memory := Max_Memory;
       Mach.Modu := M;
       Run (Mach, "main", Thread_Count);
       R := Last_Result (Mach);
@@ -144,7 +162,7 @@ begin
             S : constant Natural := Str_Slot (P, R);
          begin
             if S > 0 then
-               Put_Line ("result: " & To_String (P.String_Pool (S).Chars));
+               Put_Line ("result: " & To_String (Str_At (P, S).Chars));
             else
                Put_Line ("result: " & Integer'Image (Integer (Unbox_Small_Int (R))));
             end if;

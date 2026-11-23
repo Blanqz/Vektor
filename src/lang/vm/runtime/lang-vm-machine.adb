@@ -94,10 +94,6 @@ package body Lang.VM.Machine is
    procedure Free_Natural_Array is new Ada.Unchecked_Deallocation (VC.Natural_Array, VC.Natural_Array_Access);
    procedure Free_Frames is new Ada.Unchecked_Deallocation (Frame_Array, Frame_Array_Access);
    procedure Free_Index is new Ada.Unchecked_Deallocation (Index_Array, Index_Array_Access);
-   procedure Free_Str_Pool is new Ada.Unchecked_Deallocation (Str_Pool_Array, Str_Pool_Access);
-   procedure Free_Obj_Pool is new Ada.Unchecked_Deallocation (Obj_Pool_Array, Obj_Pool_Access);
-   procedure Free_VT_Pool is new Ada.Unchecked_Deallocation (VTable_Pool_Array, VTable_Pool_Access);
-   procedure Free_Box_Pool is new Ada.Unchecked_Deallocation (Box_Pool_Array, Box_Pool_Access);
 
    function Str_Ptr (Slot : Natural) return TW is
      (Make_Heap_Ptr (Unsigned_64 (Slot) * 16));
@@ -107,6 +103,34 @@ package body Lang.VM.Machine is
 
    function Box_Ptr (Slot : Natural) return TW is
      (Make_Box_Ptr (Unsigned_64 (Slot) * 8));
+
+   function Obj_At (P : Process_Access; I : Natural) return access Obj_Entry is
+      Chunk_Idx : constant Positive := (I - 1) / Obj_Chunk_Size + 1;
+      Offset    : constant Positive := (I - 1) mod Obj_Chunk_Size + 1;
+   begin
+      return P.Object_Pool (Chunk_Idx).all (Offset)'Access;
+   end Obj_At;
+
+   function VT_At (P : Process_Access; I : Natural) return access VTable_Entry is
+      Chunk_Idx : constant Positive := (I - 1) / VT_Chunk_Size + 1;
+      Offset    : constant Positive := (I - 1) mod VT_Chunk_Size + 1;
+   begin
+      return P.VTable_Pool (Chunk_Idx).all (Offset)'Access;
+   end VT_At;
+
+   function Box_At (P : Process_Access; I : Natural) return access Box_Entry is
+      Chunk_Idx : constant Positive := (I - 1) / Box_Chunk_Size + 1;
+      Offset    : constant Positive := (I - 1) mod Box_Chunk_Size + 1;
+   begin
+      return P.Box_Pool (Chunk_Idx).all (Offset)'Access;
+   end Box_At;
+
+   function Str_At (P : Process_Access; I : Natural) return access Str_Entry is
+      Chunk_Idx : constant Positive := (I - 1) / Str_Chunk_Size + 1;
+      Offset    : constant Positive := (I - 1) mod Str_Chunk_Size + 1;
+   begin
+      return P.String_Pool (Chunk_Idx).all (Offset)'Access;
+   end Str_At;
 
    function Str_Slot (P : Process_Access; W : TW) return Natural is
    begin
@@ -119,7 +143,7 @@ package body Lang.VM.Machine is
                   Idx : constant Unsigned_64 := Addr / 16;
                begin
                   if Idx >= 1 and then Idx <= Unsigned_64 (P.Str_Cap)
-                    and then P.String_Pool (Natural (Idx)).In_Use
+                    and then Str_At (P, Natural (Idx)).In_Use
                   then
                      return Natural (Idx);
                   end if;
@@ -141,7 +165,7 @@ package body Lang.VM.Machine is
                   Idx : constant Unsigned_64 := Addr / 16;
                begin
                   if Idx >= 1 and then Idx <= Unsigned_64 (P.Obj_Cap)
-                    and then P.Object_Pool (Natural (Idx)).In_Use
+                    and then Obj_At (P, Natural (Idx)).In_Use
                   then
                      return Natural (Idx);
                   end if;
@@ -159,7 +183,7 @@ package body Lang.VM.Machine is
             Idx : constant Unsigned_64 := Unbox_Box_Ptr (W) / 8;
          begin
             if Idx >= 1 and then Idx <= Unsigned_64 (P.Box_Cap)
-              and then P.Box_Pool (Natural (Idx)).In_Use
+              and then Box_At (P, Natural (Idx)).In_Use
             then
                return Natural (Idx);
             end if;
@@ -172,10 +196,10 @@ package body Lang.VM.Machine is
       S : constant Natural := Str_Slot (P, W);
    begin
       if S > 0 then
-         if P.String_Pool (S).Large and then P.String_Pool (S).Buf_Id > 0 then
-            return P.Large_Buffers (P.String_Pool (S).Buf_Id).Data;
+         if Str_At (P, S).Large and then Str_At (P, S).Buf_Id > 0 then
+            return P.Large_Buffers (Str_At (P, S).Buf_Id).Data;
          end if;
-         return P.String_Pool (S).Chars;
+         return Str_At (P, S).Chars;
       end if;
       return Null_Unbounded_String;
    end Chars_Of;
@@ -214,15 +238,15 @@ package body Lang.VM.Machine is
             procedure Mark_Pinned is
             begin
                for I in 1 .. P.Obj_Cap loop
-                  if P.Object_Pool (I).In_Use and then P.Object_Pool (I).Pinned and then not P.Object_Pool (I).Marked then
-                     P.Object_Pool (I).Marked := True;
+                  if Obj_At (P, I).In_Use and then Obj_At (P, I).Pinned and then not Obj_At (P, I).Marked then
+                     Obj_At (P, I).Marked := True;
                      Top := Top + 1;
                      Work (Top) := I;
                   end if;
                end loop;
                for I in 1 .. P.Str_Cap loop
-                  if P.String_Pool (I).In_Use and then P.String_Pool (I).Pinned then
-                     P.String_Pool (I).Marked := True;
+                  if Str_At (P, I).In_Use and then Str_At (P, I).Pinned then
+                     Str_At (P, I).Marked := True;
                   end if;
                end loop;
             end Mark_Pinned;
@@ -235,19 +259,19 @@ package body Lang.VM.Machine is
                end if;
                S := Str_Slot (P, W);
                if S > 0 then
-                  P.String_Pool (S).Marked := True;
+                  Str_At (P, S).Marked := True;
                else
                   S := Obj_Slot (P, W);
                if S > 0 then
-                  if not P.Object_Pool (S).Marked then
-                     P.Object_Pool (S).Marked := True;
+                  if not Obj_At (P, S).Marked then
+                     Obj_At (P, S).Marked := True;
                      Top := Top + 1;
                      Work (Top) := S;
                   end if;
                else
                   S := Box_Slot (P, W);
                   if S > 0 then
-                     P.Box_Pool (S).Marked := True;
+                     Box_At (P, S).Marked := True;
                   end if;
                end if;
                end if;
@@ -271,15 +295,15 @@ package body Lang.VM.Machine is
                   S : constant Natural := Work (Top);
                begin
                   Top := Top - 1;
-                  for I in 1 .. P.Object_Pool (S).Count loop
-                     Mark (P.Object_Pool (S).Fields (I));
+                  for I in 1 .. Obj_At (P, S).Count loop
+                     Mark (Obj_At (P, S).Fields (I));
                   end loop;
-                  if P.Object_Pool (S).Count >= 2 then
+                  if Obj_At (P, S).Count >= 2 then
                      declare
-                        VIdx : constant Natural := Natural (Unbox_Small_Int (P.Object_Pool (S).Fields (2)));
+                        VIdx : constant Natural := Natural (Unbox_Small_Int (Obj_At (P, S).Fields (2)));
                      begin
-                        if VIdx >= 1 and then VIdx <= P.VT_Cap and then P.VTable_Pool (VIdx).In_Use then
-                           P.VTable_Pool (VIdx).Marked := True;
+                        if VIdx >= 1 and then VIdx <= P.VT_Cap and then VT_At (P, VIdx).In_Use then
+                           VT_At (P, VIdx).Marked := True;
                         end if;
                      end;
                   end if;
@@ -287,36 +311,44 @@ package body Lang.VM.Machine is
             end loop;
 
             for I in 1 .. P.Str_Cap loop
-               if P.String_Pool (I).In_Use and then not P.String_Pool (I).Pinned and then not P.String_Pool (I).Marked then
-                  if M.Major_GC or else P.String_Pool (I).Gen >= M.GC_Generation - 1 then
-                     if P.String_Pool (I).Large and then P.String_Pool (I).Buf_Id > 0 then
-                        Release_Large_Buffer (P, P.String_Pool (I).Buf_Id);
+               if Str_At (P, I).In_Use and then not Str_At (P, I).Pinned and then not Str_At (P, I).Marked then
+                  if M.Major_GC or else Str_At (P, I).Gen >= M.GC_Generation - 1 then
+                     if Str_At (P, I).Large and then Str_At (P, I).Buf_Id > 0 then
+                        Release_Large_Buffer (P, Str_At (P, I).Buf_Id);
                      end if;
-                     P.String_Pool (I).In_Use := False;
-                     P.String_Pool (I).Chars := Null_Unbounded_String;
-                     P.String_Pool (I).Large := False;
-                     P.String_Pool (I).Buf_Id := 0;
+                     Str_At (P, I).In_Use := False;
+                     Str_At (P, I).Chars := Null_Unbounded_String;
+                     Str_At (P, I).Large := False;
+                     Str_At (P, I).Buf_Id := 0;
                   end if;
                end if;
-               P.String_Pool (I).Marked := False;
-            end loop;
-
-            for I in 1 .. P.Obj_Cap loop
-               if P.Object_Pool (I).In_Use and then not P.Object_Pool (I).Marked then
-                  if M.Major_GC or else P.Object_Pool (I).Gen >= M.GC_Generation - 1 then
-                     P.Object_Pool (I).In_Use := False;
-                     P.Object_Pool (I).Count := 0;
-                     P.Object_Pool (I).Type_Name := To_Unbounded_String ("");
-                     Free_Values (P.Object_Pool (I).Fields);
-                     P.Object_Pool (I).Fields := null;
-                  end if;
-               end if;
-               P.Object_Pool (I).Marked := False;
+               Str_At (P, I).Marked := False;
             end loop;
 
             P.Str_Free_Top := 0;
             for I in reverse 1 .. P.Str_Cap loop
-               if not P.String_Pool (I).In_Use then
+               if not Str_At (P, I).In_Use then
+                  P.Str_Free_Top := P.Str_Free_Top + 1;
+                  P.Str_Free (P.Str_Free_Top) := I;
+               end if;
+            end loop;
+
+            for I in 1 .. P.Obj_Cap loop
+               if Obj_At (P, I).In_Use and then not Obj_At (P, I).Marked then
+                  if M.Major_GC or else Obj_At (P, I).Gen >= M.GC_Generation - 1 then
+                     Obj_At (P, I).In_Use := False;
+                     Obj_At (P, I).Count := 0;
+                     Obj_At (P, I).Type_Name := To_Unbounded_String ("");
+                     Free_Values (Obj_At (P, I).Fields);
+                     Obj_At (P, I).Fields := null;
+                  end if;
+               end if;
+               Obj_At (P, I).Marked := False;
+            end loop;
+
+            P.Str_Free_Top := 0;
+            for I in reverse 1 .. P.Str_Cap loop
+               if not Str_At (P, I).In_Use then
                   P.Str_Free_Top := P.Str_Free_Top + 1;
                   P.Str_Free (P.Str_Free_Top) := I;
                end if;
@@ -324,43 +356,43 @@ package body Lang.VM.Machine is
 
             P.Obj_Free_Top := 0;
             for I in reverse 1 .. P.Obj_Cap loop
-               if not P.Object_Pool (I).In_Use then
+               if not Obj_At (P, I).In_Use then
                   P.Obj_Free_Top := P.Obj_Free_Top + 1;
                   P.Obj_Free (P.Obj_Free_Top) := I;
                end if;
             end loop;
 
             for I in 1 .. P.VT_Cap loop
-               if P.VTable_Pool (I).In_Use and then not P.VTable_Pool (I).Marked then
+               if VT_At (P, I).In_Use and then not VT_At (P, I).Marked then
                   if M.Major_GC then
-                     P.VTable_Pool (I).In_Use := False;
-                     Free_Natural_Array (P.VTable_Pool (I).Methods);
-                     P.VTable_Pool (I).Methods := null;
+                     VT_At (P, I).In_Use := False;
+                     Free_Natural_Array (VT_At (P, I).Methods);
+                     VT_At (P, I).Methods := null;
                   end if;
                end if;
-               P.VTable_Pool (I).Marked := False;
+               VT_At (P, I).Marked := False;
             end loop;
 
             P.VT_Free_Top := 0;
             for I in reverse 1 .. P.VT_Cap loop
-               if not P.VTable_Pool (I).In_Use then
+               if not VT_At (P, I).In_Use then
                   P.VT_Free_Top := P.VT_Free_Top + 1;
                   P.VT_Free (P.VT_Free_Top) := I;
                end if;
             end loop;
             for I in 1 .. P.Box_Cap loop
-               if P.Box_Pool (I).In_Use and then not P.Box_Pool (I).Marked then
-                  if M.Major_GC or else P.Box_Pool (I).Gen >= M.GC_Generation - 1 then
-                     P.Box_Pool (I).In_Use := False;
-                     P.Box_Pool (I).Value := 0;
+               if Box_At (P, I).In_Use and then not Box_At (P, I).Marked then
+                  if M.Major_GC or else Box_At (P, I).Gen >= M.GC_Generation - 1 then
+                     Box_At (P, I).In_Use := False;
+                     Box_At (P, I).Value := 0;
                   end if;
                end if;
-               P.Box_Pool (I).Marked := False;
+               Box_At (P, I).Marked := False;
             end loop;
 
             P.Box_Free_Top := 0;
             for I in reverse 1 .. P.Box_Cap loop
-               if not P.Box_Pool (I).In_Use then
+               if not Box_At (P, I).In_Use then
                   P.Box_Free_Top := P.Box_Free_Top + 1;
                   P.Box_Free (P.Box_Free_Top) := I;
                end if;
@@ -396,8 +428,8 @@ package body Lang.VM.Machine is
                   begin
                      if O > 0 then
                         declare
-                           DropFn : Natural := P.Object_Pool (O).Drop;
-                           TypeName : constant String := To_String (P.Object_Pool (O).Type_Name);
+                           DropFn : Natural := Obj_At (P, O).Drop;
+                           TypeName : constant String := To_String (Obj_At (P, O).Type_Name);
                         begin
                            if DropFn = 0 then
                               declare
@@ -436,7 +468,7 @@ package body Lang.VM.Machine is
       end Update_Str_Ref;
    begin
       for I in 1 .. P.Str_Cap loop
-         if P.String_Pool (I).In_Use then
+         if Str_At (P, I).In_Use then
             New_Top := New_Top + 1;
             Map (I) := New_Top;
          else
@@ -450,7 +482,7 @@ package body Lang.VM.Machine is
          Already_Compact : Boolean := True;
       begin
          for I in 1 .. P.Str_Cap loop
-            if P.String_Pool (I).In_Use and then Map (I) /= I then
+            if Str_At (P, I).In_Use and then Map (I) /= I then
                Already_Compact := False;
                exit;
             end if;
@@ -461,9 +493,9 @@ package body Lang.VM.Machine is
       end;
       for I in 1 .. P.Str_Cap loop
          if Map (I) > 0 and then Map (I) /= I then
-            P.String_Pool (Map (I)) := P.String_Pool (I);
-            P.String_Pool (I).In_Use := False;
-            P.String_Pool (I).Chars := Null_Unbounded_String;
+            Str_At (P, Map (I)).all := Str_At (P, I).all;
+            Str_At (P, I).In_Use := False;
+            Str_At (P, I).Chars := Null_Unbounded_String;
          end if;
       end loop;
       for F in 1 .. P.Depth loop
@@ -479,16 +511,16 @@ package body Lang.VM.Machine is
          end;
       end loop;
       for O in 1 .. P.Obj_Cap loop
-         if P.Object_Pool (O).In_Use and then P.Object_Pool (O).Fields /= null then
-            for I in 1 .. P.Object_Pool (O).Count loop
-               P.Object_Pool (O).Fields (I) := Update_Str_Ref (P.Object_Pool (O).Fields (I));
+         if Obj_At (P, O).In_Use and then Obj_At (P, O).Fields /= null then
+            for I in 1 .. Obj_At (P, O).Count loop
+               Obj_At (P, O).Fields (I) := Update_Str_Ref (Obj_At (P, O).Fields (I));
             end loop;
          end if;
       end loop;
       P.Result := Update_Str_Ref (P.Result);
       P.Str_Free_Top := 0;
       for I in reverse 1 .. P.Str_Cap loop
-         if not P.String_Pool (I).In_Use then
+         if not Str_At (P, I).In_Use then
             P.Str_Free_Top := P.Str_Free_Top + 1;
             P.Str_Free (P.Str_Free_Top) := I;
          end if;
@@ -510,14 +542,9 @@ package body Lang.VM.Machine is
 
    procedure Grow_Str (P : Process_Access) is
       Old_Cap : constant Natural := P.Str_Cap;
-      New_Cap : constant Natural := 2 * Old_Cap;
-      Fresh   : constant Str_Pool_Access := new Str_Pool_Array (1 .. New_Cap);
+      New_Cap : constant Natural := Old_Cap + Str_Chunk_Size;
    begin
-      for I in 1 .. Old_Cap loop
-         Fresh (I) := P.String_Pool (I);
-      end loop;
-      Free_Str_Pool (P.String_Pool);
-      P.String_Pool := Fresh;
+      P.String_Pool.Append (new Str_Chunk);
       P.Str_Cap := New_Cap;
       Resize_Free (P.Str_Free, P.Str_Free_Top, New_Cap);
       for I in reverse Old_Cap + 1 .. New_Cap loop
@@ -528,14 +555,9 @@ package body Lang.VM.Machine is
 
    procedure Grow_Obj (P : Process_Access) is
       Old_Cap : constant Natural := P.Obj_Cap;
-      New_Cap : constant Natural := 2 * Old_Cap;
-      Fresh   : constant Obj_Pool_Access := new Obj_Pool_Array (1 .. New_Cap);
+      New_Cap : constant Natural := Old_Cap + Obj_Chunk_Size;
    begin
-      for I in 1 .. Old_Cap loop
-         Fresh (I) := P.Object_Pool (I);
-      end loop;
-      Free_Obj_Pool (P.Object_Pool);
-      P.Object_Pool := Fresh;
+      P.Object_Pool.Append (new Obj_Chunk);
       P.Obj_Cap := New_Cap;
       Resize_Free (P.Obj_Free, P.Obj_Free_Top, New_Cap);
       for I in reverse Old_Cap + 1 .. New_Cap loop
@@ -546,14 +568,9 @@ package body Lang.VM.Machine is
 
    procedure Grow_VT (P : Process_Access) is
       Old_Cap : constant Natural := P.VT_Cap;
-      New_Cap : constant Natural := 2 * Old_Cap;
-      Fresh   : constant VTable_Pool_Access := new VTable_Pool_Array (1 .. New_Cap);
+      New_Cap : constant Natural := Old_Cap + VT_Chunk_Size;
    begin
-      for I in 1 .. Old_Cap loop
-         Fresh (I) := P.VTable_Pool (I);
-      end loop;
-      Free_VT_Pool (P.VTable_Pool);
-      P.VTable_Pool := Fresh;
+      P.VTable_Pool.Append (new VT_Chunk);
       P.VT_Cap := New_Cap;
       Resize_Free (P.VT_Free, P.VT_Free_Top, New_Cap);
       for I in reverse Old_Cap + 1 .. New_Cap loop
@@ -564,14 +581,9 @@ package body Lang.VM.Machine is
 
    procedure Grow_Box (P : Process_Access) is
       Old_Cap : constant Natural := P.Box_Cap;
-      New_Cap : constant Natural := 2 * Old_Cap;
-      Fresh   : constant Box_Pool_Access := new Box_Pool_Array (1 .. New_Cap);
+      New_Cap : constant Natural := Old_Cap + Box_Chunk_Size;
    begin
-      for I in 1 .. Old_Cap loop
-         Fresh (I) := P.Box_Pool (I);
-      end loop;
-      Free_Box_Pool (P.Box_Pool);
-      P.Box_Pool := Fresh;
+      P.Box_Pool.Append (new Box_Chunk);
       P.Box_Cap := New_Cap;
       Resize_Free (P.Box_Free, P.Box_Free_Top, New_Cap);
       for I in reverse Old_Cap + 1 .. New_Cap loop
@@ -580,33 +592,41 @@ package body Lang.VM.Machine is
       end loop;
    end Grow_Box;
 
-   procedure Init_Heap (P : Process_Access) is
+   procedure Init_Heap (M : in out Machine; P : Process_Access) is
+      Init_Str : constant Natural := Natural'Max (Pool_Size, M.Initial_Memory);
    begin
-      P.String_Pool := new Str_Pool_Array (1 .. Pool_Size);
-      P.Str_Cap := Pool_Size;
-      P.Object_Pool := new Obj_Pool_Array (1 .. Object_Pool_Size);
-      P.Obj_Cap := Object_Pool_Size;
-      P.VTable_Pool := new VTable_Pool_Array (1 .. VTable_Pool_Size);
-      P.VT_Cap := VTable_Pool_Size;
-      P.Box_Pool := new Box_Pool_Array (1 .. Box_Pool_Size);
-      P.Box_Cap := Box_Pool_Size;
-      P.Str_Free := new Index_Array (1 .. Pool_Size);
-      P.Obj_Free := new Index_Array (1 .. Object_Pool_Size);
-      P.VT_Free := new Index_Array (1 .. VTable_Pool_Size);
-      P.Box_Free := new Index_Array (1 .. Box_Pool_Size);
-      for I in reverse 1 .. Pool_Size loop
+      P.String_Pool.Clear;
+      for C in 1 .. (Init_Str + Str_Chunk_Size - 1) / Str_Chunk_Size loop
+         P.String_Pool.Append (new Str_Chunk);
+      end loop;
+      P.Str_Cap := Natural (P.String_Pool.Length) * Str_Chunk_Size;
+
+      P.Object_Pool.Clear;
+      P.Object_Pool.Append (new Obj_Chunk);
+      P.Obj_Cap := Obj_Chunk_Size;
+      P.VTable_Pool.Clear;
+      P.VTable_Pool.Append (new VT_Chunk);
+      P.VT_Cap := VT_Chunk_Size;
+      P.Box_Pool.Clear;
+      P.Box_Pool.Append (new Box_Chunk);
+      P.Box_Cap := Box_Chunk_Size;
+      P.Str_Free := new Index_Array (1 .. Init_Str);
+      P.Obj_Free := new Index_Array (1 .. Obj_Chunk_Size);
+      P.VT_Free := new Index_Array (1 .. VT_Chunk_Size);
+      P.Box_Free := new Index_Array (1 .. Box_Chunk_Size);
+      for I in reverse 1 .. Init_Str loop
          P.Str_Free_Top := P.Str_Free_Top + 1;
          P.Str_Free (P.Str_Free_Top) := I;
       end loop;
-      for I in reverse 1 .. Object_Pool_Size loop
+      for I in reverse 1 .. Obj_Chunk_Size loop
          P.Obj_Free_Top := P.Obj_Free_Top + 1;
          P.Obj_Free (P.Obj_Free_Top) := I;
       end loop;
-      for I in reverse 1 .. VTable_Pool_Size loop
+      for I in reverse 1 .. VT_Chunk_Size loop
          P.VT_Free_Top := P.VT_Free_Top + 1;
          P.VT_Free (P.VT_Free_Top) := I;
       end loop;
-      for I in reverse 1 .. Box_Pool_Size loop
+      for I in reverse 1 .. Box_Chunk_Size loop
          P.Box_Free_Top := P.Box_Free_Top + 1;
          P.Box_Free (P.Box_Free_Top) := I;
       end loop;
@@ -623,13 +643,13 @@ package body Lang.VM.Machine is
       end if;
       S := P.Str_Free (P.Str_Free_Top);
       P.Str_Free_Top := P.Str_Free_Top - 1;
-      P.String_Pool (S).Chars := To_Unbounded_String ("");
-      P.String_Pool (S).In_Use := True;
-      P.String_Pool (S).Marked := False;
-      P.String_Pool (S).Pinned := False;
-      P.String_Pool (S).Large := False;
-      P.String_Pool (S).Buf_Id := 0;
-      P.String_Pool (S).Gen := M.GC_Generation;
+      Str_At (P, S).Chars := To_Unbounded_String ("");
+      Str_At (P, S).In_Use := True;
+      Str_At (P, S).Marked := False;
+      Str_At (P, S).Pinned := False;
+      Str_At (P, S).Large := False;
+      Str_At (P, S).Buf_Id := 0;
+      Str_At (P, S).Gen := M.GC_Generation;
       M.Allocations_Since_GC := M.Allocations_Since_GC + 1;
       if M.GC_Stress_Interval > 0 and then M.Allocations_Since_GC >= M.GC_Stress_Interval then
          Collect (M);
@@ -674,10 +694,10 @@ package body Lang.VM.Machine is
       L : Natural;
       Buf_Id : Natural;
    begin
-      if P.String_Pool (Slot).Large then
+      if Str_At (P, Slot).Large then
          return;
       end if;
-      L := Length (P.String_Pool (Slot).Chars);
+      L := Length (Str_At (P, Slot).Chars);
       if L < Large_Buffer_Threshold then
          return;
       end if;
@@ -685,10 +705,10 @@ package body Lang.VM.Machine is
       if Buf_Id = 0 then
          return;
       end if;
-      P.Large_Buffers (Buf_Id).Data := P.String_Pool (Slot).Chars;
-      P.String_Pool (Slot).Large := True;
-      P.String_Pool (Slot).Buf_Id := Buf_Id;
-      P.String_Pool (Slot).Chars := To_Unbounded_String ("");
+      P.Large_Buffers (Buf_Id).Data := Str_At (P, Slot).Chars;
+      Str_At (P, Slot).Large := True;
+      Str_At (P, Slot).Buf_Id := Buf_Id;
+      Str_At (P, Slot).Chars := To_Unbounded_String ("");
    end Promote_To_Large;
 
    function Alloc_Obj (M : in out Machine; P : Process_Access) return Natural is
@@ -702,14 +722,14 @@ package body Lang.VM.Machine is
       end if;
       S := P.Obj_Free (P.Obj_Free_Top);
       P.Obj_Free_Top := P.Obj_Free_Top - 1;
-      P.Object_Pool (S).Type_Name := To_Unbounded_String ("");
-      P.Object_Pool (S).Drop := 0;
-      P.Object_Pool (S).Count := 0;
-      P.Object_Pool (S).Fields := null;
-      P.Object_Pool (S).In_Use := True;
-      P.Object_Pool (S).Marked := False;
-      P.Object_Pool (S).Pinned := False;
-      P.Object_Pool (S).Gen := M.GC_Generation;
+      Obj_At (P, S).Type_Name := To_Unbounded_String ("");
+      Obj_At (P, S).Drop := 0;
+      Obj_At (P, S).Count := 0;
+      Obj_At (P, S).Fields := null;
+      Obj_At (P, S).In_Use := True;
+      Obj_At (P, S).Marked := False;
+      Obj_At (P, S).Pinned := False;
+      Obj_At (P, S).Gen := M.GC_Generation;
       M.Allocations_Since_GC := M.Allocations_Since_GC + 1;
       if M.GC_Stress_Interval > 0 and then M.Allocations_Since_GC >= M.GC_Stress_Interval then
          Collect (M);
@@ -724,7 +744,7 @@ package body Lang.VM.Machine is
       if P.VT_Free_Top = 0 then
          Collect (M);
          for I in 1 .. P.VT_Cap loop
-            if not P.VTable_Pool (I).In_Use then
+            if not VT_At (P, I).In_Use then
                P.VT_Free_Top := P.VT_Free_Top + 1;
                P.VT_Free (P.VT_Free_Top) := I;
             end if;
@@ -733,7 +753,7 @@ package body Lang.VM.Machine is
       if P.VT_Free_Top = 0 then
          Collect (M);
          for I in 1 .. P.VT_Cap loop
-            if not P.VTable_Pool (I).In_Use then
+            if not VT_At (P, I).In_Use then
                P.VT_Free_Top := P.VT_Free_Top + 1;
                P.VT_Free (P.VT_Free_Top) := I;
             end if;
@@ -744,9 +764,9 @@ package body Lang.VM.Machine is
       end if;
       S := P.VT_Free (P.VT_Free_Top);
       P.VT_Free_Top := P.VT_Free_Top - 1;
-      P.VTable_Pool (S).Methods := null;
-      P.VTable_Pool (S).In_Use := True;
-      P.VTable_Pool (S).Marked := False;
+      VT_At (P, S).Methods := null;
+      VT_At (P, S).In_Use := True;
+      VT_At (P, S).Marked := False;
       M.Allocations_Since_GC := M.Allocations_Since_GC + 1;
       if M.GC_Stress_Interval > 0 and then M.Allocations_Since_GC >= M.GC_Stress_Interval then
          Collect (M);
@@ -761,7 +781,7 @@ package body Lang.VM.Machine is
       if P.Box_Free_Top = 0 then
          Collect (M);
          for I in 1 .. P.Box_Cap loop
-            if not P.Box_Pool (I).In_Use then
+            if not Box_At (P, I).In_Use then
                P.Box_Free_Top := P.Box_Free_Top + 1;
                P.Box_Free (P.Box_Free_Top) := I;
             end if;
@@ -770,7 +790,7 @@ package body Lang.VM.Machine is
       if P.Box_Free_Top = 0 then
          Collect (M);
          for I in 1 .. P.Box_Cap loop
-            if not P.Box_Pool (I).In_Use then
+            if not Box_At (P, I).In_Use then
                P.Box_Free_Top := P.Box_Free_Top + 1;
                P.Box_Free (P.Box_Free_Top) := I;
             end if;
@@ -781,11 +801,11 @@ package body Lang.VM.Machine is
       end if;
       S := P.Box_Free (P.Box_Free_Top);
       P.Box_Free_Top := P.Box_Free_Top - 1;
-      P.Box_Pool (S).Header := Lang.VM.Box_Header.Make (Lang.VM.Box_Header.Kind_Float64);
-      P.Box_Pool (S).Value := 0;
-      P.Box_Pool (S).In_Use := True;
-      P.Box_Pool (S).Marked := False;
-      P.Box_Pool (S).Gen := M.GC_Generation;
+      Box_At (P, S).Header := Lang.VM.Box_Header.Make (Lang.VM.Box_Header.Kind_Float64);
+      Box_At (P, S).Value := 0;
+      Box_At (P, S).In_Use := True;
+      Box_At (P, S).Marked := False;
+      Box_At (P, S).Gen := M.GC_Generation;
       M.Allocations_Since_GC := M.Allocations_Since_GC + 1;
       if M.GC_Stress_Interval > 0 and then M.Allocations_Since_GC >= M.GC_Stress_Interval then
          Collect (M);
@@ -797,8 +817,8 @@ package body Lang.VM.Machine is
       Slot : constant Natural := Alloc_Box (M, P);
       function Cast is new Ada.Unchecked_Conversion (Long_Float, Interfaces.Unsigned_64);
    begin
-      P.Box_Pool (Slot).Header := Lang.VM.Box_Header.Make (Lang.VM.Box_Header.Kind_Float64);
-      P.Box_Pool (Slot).Value := Cast (Value);
+      Box_At (P, Slot).Header := Lang.VM.Box_Header.Make (Lang.VM.Box_Header.Kind_Float64);
+      Box_At (P, Slot).Value := Cast (Value);
       return Box_Ptr (Slot);
    end Make_Float;
 
@@ -809,7 +829,7 @@ package body Lang.VM.Machine is
       if B = 0 then
          return 0.0;
       end if;
-      return Cast (P.Box_Pool (B).Value);
+      return Cast (Box_At (P, B).Value);
    end Unbox_Float;
 
 
@@ -822,8 +842,8 @@ package body Lang.VM.Machine is
          return Make_Small_Int (Value);
       end if;
       Slot := Alloc_Box (M, P);
-      P.Box_Pool (Slot).Header := Lang.VM.Box_Header.Make (Lang.VM.Box_Header.Kind_Int64);
-      P.Box_Pool (Slot).Value := Cast (Value);
+      Box_At (P, Slot).Header := Lang.VM.Box_Header.Make (Lang.VM.Box_Header.Kind_Int64);
+      Box_At (P, Slot).Value := Cast (Value);
       return Box_Ptr (Slot);
    end Make_Int;
 
@@ -834,8 +854,8 @@ package body Lang.VM.Machine is
       if Is_Small_Int (W) then
          return Unbox_Small_Int (W);
       end if;
-      if B > 0 and then Lang.VM.Box_Header.Kind_Of (P.Box_Pool (B).Header) = Lang.VM.Box_Header.Kind_Int64 then
-         return Cast (P.Box_Pool (B).Value);
+      if B > 0 and then Lang.VM.Box_Header.Kind_Of (Box_At (P, B).Header) = Lang.VM.Box_Header.Kind_Int64 then
+         return Cast (Box_At (P, B).Value);
       end if;
       return 0;
    end Unbox_Int;
@@ -843,13 +863,13 @@ package body Lang.VM.Machine is
    function Is_Int_Box (P : Process_Access; W : TW) return Boolean is
       B : constant Natural := Box_Slot (P, W);
    begin
-      return B > 0 and then Lang.VM.Box_Header.Kind_Of (P.Box_Pool (B).Header) = Lang.VM.Box_Header.Kind_Int64;
+      return B > 0 and then Lang.VM.Box_Header.Kind_Of (Box_At (P, B).Header) = Lang.VM.Box_Header.Kind_Int64;
    end Is_Int_Box;
 
    function Is_Float_Box (P : Process_Access; W : TW) return Boolean is
       B : constant Natural := Box_Slot (P, W);
    begin
-      return B > 0 and then Lang.VM.Box_Header.Kind_Of (P.Box_Pool (B).Header) = Lang.VM.Box_Header.Kind_Float64;
+      return B > 0 and then Lang.VM.Box_Header.Kind_Of (Box_At (P, B).Header) = Lang.VM.Box_Header.Kind_Float64;
    end Is_Float_Box;
 
    function Is_Int_Like (P : Process_Access; W : TW) return Boolean is
@@ -929,46 +949,46 @@ package body Lang.VM.Machine is
       S := Str_Slot (SrcP, W);
       if S > 0 then
          Slot := Alloc_Str (M, DstP);
-         DstP.String_Pool (Slot).Chars := SrcP.String_Pool (S).Chars;
-         DstP.String_Pool (Slot).Pinned := SrcP.String_Pool (S).Pinned;
+         Str_At (DstP, Slot).Chars := Str_At (SrcP, S).Chars;
+         Str_At (DstP, Slot).Pinned := Str_At (SrcP, S).Pinned;
          return Str_Ptr (Slot);
       end if;
       O := Obj_Slot (SrcP, W);
       if O > 0 then
          declare
-            SrcObj : Obj_Entry renames SrcP.Object_Pool (O);
+            SrcObj : Obj_Entry renames Obj_At (SrcP, O).all;
             Count  : constant Natural := SrcObj.Count;
             F      : Value_Array_Access := null;
          begin
             Slot := Alloc_Obj (M, DstP);
-            DstP.Object_Pool (Slot).Pinned := True;
-            DstP.Object_Pool (Slot).Type_Name := SrcObj.Type_Name;
-            DstP.Object_Pool (Slot).Drop := SrcObj.Drop;
-            DstP.Object_Pool (Slot).Count := Count;
+            Obj_At (DstP, Slot).Pinned := True;
+            Obj_At (DstP, Slot).Type_Name := SrcObj.Type_Name;
+            Obj_At (DstP, Slot).Drop := SrcObj.Drop;
+            Obj_At (DstP, Slot).Count := Count;
             if Count > 0 then
                F := new Value_Array (1 .. Count);
-               DstP.Object_Pool (Slot).Fields := F;
+               Obj_At (DstP, Slot).Fields := F;
                for I in 1 .. Count loop
                   F (I) := Deep_Copy (M, SrcP, DstP, SrcObj.Fields (I));
                end loop;
                if Count >= 2 and then Is_Small_Int (SrcObj.Fields (2)) then
                   VIdx := Natural (Unbox_Small_Int (SrcObj.Fields (2)));
-                  if VIdx >= 1 and then VIdx <= SrcP.VT_Cap and then SrcP.VTable_Pool (VIdx).In_Use then
+                  if VIdx >= 1 and then VIdx <= SrcP.VT_Cap and then VT_At (SrcP, VIdx).In_Use then
                      DSlot := Alloc_VT (M, DstP);
-                     if SrcP.VTable_Pool (VIdx).Methods /= null then
+                     if VT_At (SrcP, VIdx).Methods /= null then
                         declare
-                           N : constant Natural := SrcP.VTable_Pool (VIdx).Methods.all'Length;
+                           N : constant Natural := VT_At (SrcP, VIdx).Methods.all'Length;
                            MArr : VC.Natural_Array_Access := new VC.Natural_Array (1 .. N);
                         begin
-                           MArr (1 .. N) := SrcP.VTable_Pool (VIdx).Methods (1 .. N);
-                           DstP.VTable_Pool (DSlot).Methods := MArr;
+                           MArr (1 .. N) := VT_At (SrcP, VIdx).Methods (1 .. N);
+                           VT_At (DstP, DSlot).Methods := MArr;
                         end;
                      end if;
                      F (2) := Make_Small_Int (Integer_64 (DSlot));
                   end if;
                end if;
             end if;
-            DstP.Object_Pool (Slot).Pinned := False;
+            Obj_At (DstP, Slot).Pinned := False;
             return Obj_Ptr (Slot);
          end;
       end if;
@@ -979,8 +999,8 @@ package body Lang.VM.Machine is
             declare
                Slot : constant Natural := Alloc_Box (M, DstP);
             begin
-               DstP.Box_Pool (Slot).Header := SrcP.Box_Pool (B).Header;
-               DstP.Box_Pool (Slot).Value := SrcP.Box_Pool (B).Value;
+               Box_At (DstP, Slot).Header := Box_At (SrcP, B).Header;
+               Box_At (DstP, Slot).Value := Box_At (SrcP, B).Value;
                return Box_Ptr (Slot);
             end;
          end if;
@@ -1127,7 +1147,7 @@ package body Lang.VM.Machine is
       P.Stack := new Value_Array (1 .. 256);
       P.Mail := new Value_Array (1 .. 8);
       P.Large_Buffers := new Large_Buffer_Array;
-      Init_Heap (P);
+      Init_Heap (M, P);
       if CI > 0 then
          Push_Frame (M, P, CI, M.Prog.Funcs (CI).Frame_Size, False, 0, Base);
       end if;
@@ -1198,7 +1218,7 @@ package body Lang.VM.Machine is
                   B    : constant Unbounded_String := Chars_Of (P, Arg (2));
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
-                  P.String_Pool (Slot).Chars := A & B;
+                  Str_At (P, Slot).Chars := A & B;
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
                      Set_Dest (Str_Ptr (Slot));
@@ -1210,7 +1230,7 @@ package body Lang.VM.Machine is
             if Ins.Args_Count >= 1 then
                declare
                   S : constant Natural := Str_Slot (P, Arg (1));
-                  L : constant Natural := (if S > 0 then Length (P.String_Pool (S).Chars) else 0);
+                  L : constant Natural := (if S > 0 then Length (Str_At (P, S).Chars) else 0);
                begin
                   if Ins.Has_Dest then
                      Set_Dest (Make_Small_Int (Integer_64 (L)));
@@ -1227,7 +1247,7 @@ package body Lang.VM.Machine is
                                                   Ada.Strings.Left));
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
-                  P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
+                  Str_At (P, Slot).Chars := To_Unbounded_String (Img);
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
                      Set_Dest (Str_Ptr (Slot));
@@ -1244,9 +1264,9 @@ package body Lang.VM.Machine is
                begin
                   if O > 0 then
                      declare
-                        Old_Count : constant Natural := P.Object_Pool (O).Count;
+                        Old_Count : constant Natural := Obj_At (P, O).Count;
                         Cap       : constant Natural :=
-                          (if P.Object_Pool (O).Fields = null then 0 else P.Object_Pool (O).Fields.all'Length);
+                          (if Obj_At (P, O).Fields = null then 0 else Obj_At (P, O).Fields.all'Length);
                      begin
                         if Old_Count >= Cap then
                            declare
@@ -1254,16 +1274,16 @@ package body Lang.VM.Machine is
                               F       : constant Value_Array_Access := new Value_Array (1 .. New_Cap);
                            begin
                               if Old_Count > 0 then
-                                 F (1 .. Old_Count) := P.Object_Pool (O).Fields (1 .. Old_Count);
+                                 F (1 .. Old_Count) := Obj_At (P, O).Fields (1 .. Old_Count);
                               end if;
-                              if P.Object_Pool (O).Fields /= null then
-                                 Free_Values (P.Object_Pool (O).Fields);
+                              if Obj_At (P, O).Fields /= null then
+                                 Free_Values (Obj_At (P, O).Fields);
                               end if;
-                              P.Object_Pool (O).Fields := F;
+                              Obj_At (P, O).Fields := F;
                            end;
                         end if;
-                        P.Object_Pool (O).Fields (Old_Count + 1) := V;
-                        P.Object_Pool (O).Count := Old_Count + 1;
+                        Obj_At (P, O).Fields (Old_Count + 1) := V;
+                        Obj_At (P, O).Count := Old_Count + 1;
                         if Ins.Has_Dest then
                            Set_Dest (L);
                         end if;
@@ -1278,13 +1298,13 @@ package body Lang.VM.Machine is
                   L : constant TW := Arg (1);
                   O : constant Natural := Obj_Slot (P, L);
                begin
-                  if O > 0 and then P.Object_Pool (O).Count > 0 then
+                  if O > 0 and then Obj_At (P, O).Count > 0 then
                      declare
-                        N : constant Natural := P.Object_Pool (O).Count;
-                        V : constant TW := P.Object_Pool (O).Fields (N);
+                        N : constant Natural := Obj_At (P, O).Count;
+                        V : constant TW := Obj_At (P, O).Fields (N);
                      begin
-                        P.Object_Pool (O).Fields (N) := Make_None;
-                        P.Object_Pool (O).Count := N - 1;
+                        Obj_At (P, O).Fields (N) := Make_None;
+                        Obj_At (P, O).Count := N - 1;
                         if Ins.Has_Dest then
                            Set_Dest (V);
                         end if;
@@ -1303,8 +1323,8 @@ package body Lang.VM.Machine is
                   V : constant TW := Arg (3);
                   O : constant Natural := Obj_Slot (P, L);
                begin
-                  if O > 0 and then I >= 0 and then I < Integer_64 (P.Object_Pool (O).Count) then
-                     P.Object_Pool (O).Fields (Natural (I) + 1) := V;
+                  if O > 0 and then I >= 0 and then I < Integer_64 (Obj_At (P, O).Count) then
+                     Obj_At (P, O).Fields (Natural (I) + 1) := V;
                   else
                      raise Constraint_Error with "list index " & Index_Text (I) & " out of range";
                   end if;
@@ -1321,9 +1341,9 @@ package body Lang.VM.Machine is
                   I : constant Integer_64 := Unbox_Small_Int (Arg (2));
                   O : constant Natural := Obj_Slot (P, L);
                begin
-                  if O > 0 and then I >= 0 and then I < Integer_64 (P.Object_Pool (O).Count) then
+                  if O > 0 and then I >= 0 and then I < Integer_64 (Obj_At (P, O).Count) then
                      if Ins.Has_Dest then
-                        Set_Dest (P.Object_Pool (O).Fields (Natural (I) + 1));
+                        Set_Dest (Obj_At (P, O).Fields (Natural (I) + 1));
                      end if;
                   else
                      raise Constraint_Error with "list index " & Index_Text (I) & " out of range";
@@ -1336,7 +1356,7 @@ package body Lang.VM.Machine is
                declare
                   L : constant TW := Arg (1);
                   O : constant Natural := Obj_Slot (P, L);
-                  Len : constant Integer_64 := (if O > 0 then Integer_64 (P.Object_Pool (O).Count) else 0);
+                  Len : constant Integer_64 := (if O > 0 then Integer_64 (Obj_At (P, O).Count) else 0);
                begin
                   if Ins.Has_Dest then
                      Set_Dest (Make_Small_Int (Len));
@@ -1349,11 +1369,11 @@ package body Lang.VM.Machine is
                declare
                   S : constant Natural := Str_Slot (P, Arg (1));
                   I : constant Integer_64 := Unbox_Small_Int (Arg (2));
-                  L : constant Natural := (if S > 0 then Length (P.String_Pool (S).Chars) else 0);
+                  L : constant Natural := (if S > 0 then Length (Str_At (P, S).Chars) else 0);
                begin
                   if S > 0 and then I >= 0 and then I < Integer_64 (L) then
                      if Ins.Has_Dest then
-                        Set_Dest (Make_Small_Int (Integer_64 (Character'Pos (Element (P.String_Pool (S).Chars, Natural (I) + 1)))));
+                        Set_Dest (Make_Small_Int (Integer_64 (Character'Pos (Element (Str_At (P, S).Chars, Natural (I) + 1)))));
                      end if;
                   else
                      raise Constraint_Error with "text index " & Index_Text (I) & " out of range";
@@ -1367,13 +1387,13 @@ package body Lang.VM.Machine is
                   S : constant Natural := Str_Slot (P, Arg (1));
                   Start : constant Integer_64 := Unbox_Small_Int (Arg (2));
                   Finish : constant Integer_64 := Unbox_Small_Int (Arg (3));
-                  Src : constant Unbounded_String := (if S > 0 then P.String_Pool (S).Chars else To_Unbounded_String (""));
+                  Src : constant Unbounded_String := (if S > 0 then Str_At (P, S).Chars else To_Unbounded_String (""));
                   L : constant Natural := Length (Src);
                   Lo : constant Natural := Natural'Min (L, Natural'Max (0, Integer (Start)));
                   Hi : constant Natural := Natural'Min (L, Natural'Max (Lo, Integer (Finish)));
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
-                  P.String_Pool (Slot).Chars := Unbounded_Slice (Src, Lo + 1, Hi);
+                  Str_At (P, Slot).Chars := Unbounded_Slice (Src, Lo + 1, Hi);
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
                      Set_Dest (Str_Ptr (Slot));
@@ -1386,7 +1406,7 @@ package body Lang.VM.Machine is
                Line : String := Get_Line;
                Slot : constant Natural := Alloc_Str (M, P);
             begin
-               P.String_Pool (Slot).Chars := To_Unbounded_String (Line);
+               Str_At (P, Slot).Chars := To_Unbounded_String (Line);
                if Ins.Has_Dest then
                   Set_Dest (Str_Ptr (Slot));
                end if;
@@ -1488,7 +1508,7 @@ package body Lang.VM.Machine is
                      Put_Line (Standard_Error, "cannot read file: " & Name);
                end;
                Slot := Alloc_Str (M, P);
-               P.String_Pool (Slot).Chars := Content;
+               Str_At (P, Slot).Chars := Content;
                Promote_To_Large (P, Slot);
                if Ins.Has_Dest then
                   Set_Dest (Str_Ptr (Slot));
@@ -1522,7 +1542,7 @@ package body Lang.VM.Machine is
                      else Format_Decimal (Unbox_Float (P, Arg (1))));
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
-                  P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
+                  Str_At (P, Slot).Chars := To_Unbounded_String (Img);
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
                      Set_Dest (Str_Ptr (Slot));
@@ -1550,8 +1570,8 @@ package body Lang.VM.Machine is
                   H : Integer_64 := 7;
                begin
                   if S > 0 then
-                     for I in 1 .. Length (P.String_Pool (S).Chars) loop
-                        H := (H * 31 + Integer_64 (Character'Pos (Element (P.String_Pool (S).Chars, I))))
+                     for I in 1 .. Length (Str_At (P, S).Chars) loop
+                        H := (H * 31 + Integer_64 (Character'Pos (Element (Str_At (P, S).Chars, I))))
                              mod 1_000_000_007;
                      end loop;
                   end if;
@@ -1587,7 +1607,7 @@ package body Lang.VM.Machine is
                     (if N >= 0 and then N <= 255 then (1 => Character'Val (Integer (N))) else "");
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
-                  P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
+                  Str_At (P, Slot).Chars := To_Unbounded_String (Img);
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
                      Set_Dest (Str_Ptr (Slot));
@@ -1609,7 +1629,7 @@ package body Lang.VM.Machine is
                         Img (I) := Ada.Characters.Handling.To_Lower (Img (I));
                      end if;
                   end loop;
-                  P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
+                  Str_At (P, Slot).Chars := To_Unbounded_String (Img);
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
                      Set_Dest (Str_Ptr (Slot));
@@ -1736,7 +1756,7 @@ package body Lang.VM.Machine is
                declare
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
-                  P.String_Pool (Slot).Chars :=
+                  Str_At (P, Slot).Chars :=
                     To_Unbounded_String (Utf8_Of (Unbox_Int (P, Arg (1))));
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
@@ -1827,7 +1847,7 @@ package body Lang.VM.Machine is
                declare
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
-                  P.String_Pool (Slot).Chars := Content;
+                  Str_At (P, Slot).Chars := Content;
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
                      Set_Dest (Str_Ptr (Slot));
@@ -1850,7 +1870,7 @@ package body Lang.VM.Machine is
                declare
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
-                  P.String_Pool (Slot).Chars := Val;
+                  Str_At (P, Slot).Chars := Val;
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
                      Set_Dest (Str_Ptr (Slot));
@@ -1863,7 +1883,7 @@ package body Lang.VM.Machine is
                Cwd  : constant String := Ada.Directories.Current_Directory;
                Slot : constant Natural := Alloc_Str (M, P);
             begin
-               P.String_Pool (Slot).Chars := To_Unbounded_String (Cwd);
+               Str_At (P, Slot).Chars := To_Unbounded_String (Cwd);
                Promote_To_Large (P, Slot);
                if Ins.Has_Dest then
                   Set_Dest (Str_Ptr (Slot));
@@ -2057,7 +2077,7 @@ package body Lang.VM.Machine is
                declare
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
-                  P.String_Pool (Slot).Chars := Content;
+                  Str_At (P, Slot).Chars := Content;
                   Promote_To_Large (P, Slot);
                   if Ins.Has_Dest then
                      Set_Dest (Str_Ptr (Slot));
@@ -2325,8 +2345,8 @@ package body Lang.VM.Machine is
                         declare
                            Slot : constant Natural := Alloc_Str (M, P);
                         begin
-                           P.String_Pool (Slot).Chars := M.Prog.Strings (Ins.Str);
-                           P.String_Pool (Slot).Pinned := True;
+                           Str_At (P, Slot).Chars := M.Prog.Strings (Ins.Str);
+                           Str_At (P, Slot).Pinned := True;
                            Promote_To_Large (P, Slot);
                            S (Base + Ins.Dest) := Str_Ptr (Slot);
                         end;
@@ -2340,13 +2360,13 @@ package body Lang.VM.Machine is
                            Count  : constant Natural := 1 + Ins.Args_Count;
                            F      : Value_Array_Access := new Value_Array (1 .. Count);
                         begin
-                           P.Object_Pool (Slot).Type_Name := To_Unbounded_String ("Closure");
-                           P.Object_Pool (Slot).Count := Count;
+                           Obj_At (P, Slot).Type_Name := To_Unbounded_String ("Closure");
+                           Obj_At (P, Slot).Count := Count;
                            F (1) := Make_Small_Int (Integer_64 (Ins.Callee));
                            for A in 1 .. Ins.Args_Count loop
                               F (A + 1) := P.Stack (Base + M.Prog.Args (Ins.Args_First + A - 1));
                            end loop;
-                           P.Object_Pool (Slot).Fields := F;
+                           Obj_At (P, Slot).Fields := F;
                            S (Base + Ins.Dest) := Obj_Ptr (Slot);
                         end;
 
@@ -2443,8 +2463,8 @@ package body Lang.VM.Machine is
                            then
                               declare
                                  Same : constant Boolean :=
-                                   To_String (P.String_Pool (Str_Slot (P, WA)).Chars)
-                                   = To_String (P.String_Pool (Str_Slot (P, WB)).Chars);
+                                   To_String (Str_At (P, Str_Slot (P, WA)).Chars)
+                                   = To_String (Str_At (P, Str_Slot (P, WB)).Chars);
                               begin
                                  R := (Same and then Ins.Cmp = Cmp_Eq)
                                    or else (not Same and then Ins.Cmp = Cmp_Ne);
@@ -2530,20 +2550,20 @@ package body Lang.VM.Machine is
                            Extent   : Natural;
                            New_Base : Natural;
                         begin
-                           if O > 0 and then P.Object_Pool (O).Count >= 1
-                             and then Is_Small_Int (P.Object_Pool (O).Fields (1))
+                           if O > 0 and then Obj_At (P, O).Count >= 1
+                             and then Is_Small_Int (Obj_At (P, O).Fields (1))
                            then
-                              Callee := Natural (Unbox_Small_Int (P.Object_Pool (O).Fields (1)));
-                              Captures := P.Object_Pool (O).Count - 1;
+                              Callee := Natural (Unbox_Small_Int (Obj_At (P, O).Fields (1)));
+                              Captures := Obj_At (P, O).Count - 1;
                            end if;
                            if Callee = 0 then
-                              Put_Line ("invalid closure O=" & Natural'Image (O) & " count=" & Natural'Image ((if O>0 then P.Object_Pool (O).Count else 0)));
+                              Put_Line ("invalid closure O=" & Natural'Image (O) & " count=" & Natural'Image ((if O>0 then Obj_At (P, O).Count else 0)));
                               raise Constraint_Error with "invalid closure";
                            end if;
                            Extent := Natural'Max (M.Prog.Funcs (Callee).Frame_Size, Captures + Ins.Args_Count);
                            Push_Frame (M, P, Callee, Extent, Ins.Has_Dest, Ins.Dest, New_Base);
                            for C in 1 .. Captures loop
-                              P.Stack (New_Base + C - 1) := P.Object_Pool (O).Fields (C + 1);
+                              P.Stack (New_Base + C - 1) := Obj_At (P, O).Fields (C + 1);
                            end loop;
                            for A in 1 .. Ins.Args_Count loop
                               P.Stack (New_Base + Captures + A - 1) :=
@@ -2654,10 +2674,10 @@ package body Lang.VM.Machine is
                            for I in 1 .. N loop
                               F (I) := S (Base + M.Prog.Args (Ins.Args_First + I - 1));
                            end loop;
-                           P.Object_Pool (Slot).Fields := F;
-                           P.Object_Pool (Slot).Count := N;
-                           P.Object_Pool (Slot).Drop := M.Prog.Drops (Ins.Str);
-                           P.Object_Pool (Slot).Type_Name := M.Prog.Strings (Ins.Str);
+                           Obj_At (P, Slot).Fields := F;
+                           Obj_At (P, Slot).Count := N;
+                           Obj_At (P, Slot).Drop := M.Prog.Drops (Ins.Str);
+                           Obj_At (P, Slot).Type_Name := M.Prog.Strings (Ins.Str);
                            S (Base + Ins.Dest) := Obj_Ptr (Slot);
                         end;
 
@@ -2665,8 +2685,8 @@ package body Lang.VM.Machine is
                         declare
                            O : constant Natural := Obj_Slot (P, S (Base + Ins.Src1));
                         begin
-                           if O > 0 and then Ins.Field_Index < P.Object_Pool (O).Count then
-                              S (Base + Ins.Dest) := P.Object_Pool (O).Fields (Ins.Field_Index + 1);
+                           if O > 0 and then Ins.Field_Index < Obj_At (P, O).Count then
+                              S (Base + Ins.Dest) := Obj_At (P, O).Fields (Ins.Field_Index + 1);
                            end if;
                         end;
 
@@ -2674,8 +2694,8 @@ package body Lang.VM.Machine is
                         declare
                            O : constant Natural := Obj_Slot (P, S (Base + Ins.Src1));
                         begin
-                           if O > 0 and then Ins.Field_Index < P.Object_Pool (O).Count then
-                              P.Object_Pool (O).Fields (Ins.Field_Index + 1) := S (Base + Ins.Src2);
+                           if O > 0 and then Ins.Field_Index < Obj_At (P, O).Count then
+                              Obj_At (P, O).Fields (Ins.Field_Index + 1) := S (Base + Ins.Src2);
                            end if;
                         end;
 
@@ -2689,8 +2709,8 @@ package body Lang.VM.Machine is
                            else
                               F (1) := Zero;
                            end if;
-                           P.Object_Pool (Slot).Fields := F;
-                           P.Object_Pool (Slot).Count := 1;
+                           Obj_At (P, Slot).Fields := F;
+                           Obj_At (P, Slot).Count := 1;
                            S (Base + Ins.Dest) := Obj_Ptr (Slot);
                         end;
 
@@ -2698,8 +2718,8 @@ package body Lang.VM.Machine is
                         declare
                            O : constant Natural := Obj_Slot (P, S (Base + Ins.Src1));
                         begin
-                           if O > 0 and then P.Object_Pool (O).Count >= 1 then
-                              S (Base + Ins.Dest) := P.Object_Pool (O).Fields (1);
+                           if O > 0 and then Obj_At (P, O).Count >= 1 then
+                              S (Base + Ins.Dest) := Obj_At (P, O).Fields (1);
                            end if;
                         end;
 
@@ -2707,8 +2727,8 @@ package body Lang.VM.Machine is
                         declare
                            O : constant Natural := Obj_Slot (P, S (Base + Ins.Src1));
                         begin
-                           if O > 0 and then P.Object_Pool (O).Count >= 1 then
-                              P.Object_Pool (O).Fields (1) := S (Base + Ins.Src2);
+                           if O > 0 and then Obj_At (P, O).Count >= 1 then
+                              Obj_At (P, O).Fields (1) := S (Base + Ins.Src2);
                            end if;
                         end;
 
@@ -2719,8 +2739,8 @@ package body Lang.VM.Machine is
                         begin
                            F (1) := S (Base + Ins.Src1);
                            F (2) := S (Base + Ins.Src2);
-                           P.Object_Pool (Slot).Fields := F;
-                           P.Object_Pool (Slot).Count := 2;
+                           Obj_At (P, Slot).Fields := F;
+                           Obj_At (P, Slot).Count := 2;
                            S (Base + Ins.Dest) := Obj_Ptr (Slot);
                         end;
 
@@ -2732,18 +2752,18 @@ package body Lang.VM.Machine is
                            Func  : Natural := 0;
                         begin
                            if O > 0 then
-                              if P.Object_Pool (O).Count >= 1 then
-                                 Self := P.Object_Pool (O).Fields (1);
+                              if Obj_At (P, O).Count >= 1 then
+                                 Self := Obj_At (P, O).Fields (1);
                               end if;
-                              if P.Object_Pool (O).Count >= 2 then
-                                 VIdx := Natural (Unbox_Small_Int (P.Object_Pool (O).Fields (2)));
+                              if Obj_At (P, O).Count >= 2 then
+                                 VIdx := Natural (Unbox_Small_Int (Obj_At (P, O).Fields (2)));
                               end if;
                            end if;
 
-                           if VIdx in 1 .. P.VT_Cap and then P.VTable_Pool (VIdx).In_Use
-                             and then Ins.Method_Index < P.VTable_Pool (VIdx).Methods.all'Length
+                           if VIdx in 1 .. P.VT_Cap and then VT_At (P, VIdx).In_Use
+                             and then Ins.Method_Index < VT_At (P, VIdx).Methods.all'Length
                            then
-                              Func := P.VTable_Pool (VIdx).Methods (Ins.Method_Index + 1);
+                              Func := VT_At (P, VIdx).Methods (Ins.Method_Index + 1);
                            end if;
 
                            if Func in 1 .. M.Prog.Funcs.all'Length then
@@ -2778,15 +2798,15 @@ package body Lang.VM.Machine is
                            O  : Natural := O0;
                            DropFn : Natural := 0;
                         begin
-                           if O0 > 0 and then P.Object_Pool (O0).Count = 2
-                             and then Is_Small_Int (P.Object_Pool (O0).Fields (2))
+                           if O0 > 0 and then Obj_At (P, O0).Count = 2
+                             and then Is_Small_Int (Obj_At (P, O0).Fields (2))
                            then
                               declare
-                                 VIdx : constant Natural := Natural (Unbox_Small_Int (P.Object_Pool (O0).Fields (2)));
-                                 Data : constant TW := P.Object_Pool (O0).Fields (1);
+                                 VIdx : constant Natural := Natural (Unbox_Small_Int (Obj_At (P, O0).Fields (2)));
+                                 Data : constant TW := Obj_At (P, O0).Fields (1);
                               begin
                                  if VIdx >= 1 and then VIdx <= P.VT_Cap
-                                   and then P.VTable_Pool (VIdx).In_Use
+                                   and then VT_At (P, VIdx).In_Use
                                  then
                                     O := Obj_Slot (P, Data);
                                     if O > 0 then
@@ -2796,10 +2816,10 @@ package body Lang.VM.Machine is
                               end;
                            end if;
                            if O > 0 then
-                              DropFn := P.Object_Pool (O).Drop;
+                              DropFn := Obj_At (P, O).Drop;
                               if DropFn = 0 then
                                  declare
-                                    TypeName : constant String := To_String (P.Object_Pool (O).Type_Name);
+                                    TypeName : constant String := To_String (Obj_At (P, O).Type_Name);
                                     Cand1    : constant String := TypeName & ".drop";
                                  begin
                                     if M.Func_Names.Contains (Cand1) then
@@ -2875,7 +2895,7 @@ package body Lang.VM.Machine is
                                     Sl : constant Natural := Str_Slot (P, P.Stack (Base + M.Prog.Args (Ins.Args_First)));
                                  begin
                                     if Sl > 0 then
-                                       R := Integer_64 (Length (P.String_Pool (Sl).Chars));
+                                       R := Integer_64 (Length (Str_At (P, Sl).Chars));
                                     else
                                        R := 0;
                                     end if;
@@ -2934,7 +2954,7 @@ package body Lang.VM.Machine is
                            for I in 1 .. Ins.Args_Count loop
                               Methods (I) := M.Prog.Args (Ins.Args_First + I - 1);
                            end loop;
-                           P.VTable_Pool (Slot).Methods := Methods;
+                           VT_At (P, Slot).Methods := Methods;
                            S (Base + Ins.Dest) := Make_Small_Int (Integer_64 (Slot));
                         end;
 
