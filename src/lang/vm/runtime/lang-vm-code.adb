@@ -65,6 +65,44 @@ package body Lang.VM.Code is
          return Bi_List_Pop;
       elsif Name = "List.set" or Name = "List_Set" then
          return Bi_List_Set;
+      elsif Name = "String.compare" then
+         return Bi_String_Compare;
+      elsif Name = "String.from_code" then
+         return Bi_String_From_Code;
+      elsif Name = "String.upper" then
+         return Bi_String_Upper;
+      elsif Name = "String.lower" then
+         return Bi_String_Lower;
+      elsif Name = "Decimal.parse" then
+         return Bi_Float_Parse;
+      elsif Name = "Decimal.sqrt" then
+         return Bi_Float_Sqrt;
+      elsif Name = "Decimal.exp" then
+         return Bi_Float_Exp;
+      elsif Name = "Decimal.ln" then
+         return Bi_Float_Ln;
+      elsif Name = "Decimal.sin" then
+         return Bi_Float_Sin;
+      elsif Name = "Decimal.cos" then
+         return Bi_Float_Cos;
+      elsif Name = "Decimal.tan" then
+         return Bi_Float_Tan;
+      elsif Name = "Decimal.atan" then
+         return Bi_Float_Atan;
+      elsif Name = "Decimal.floor" then
+         return Bi_Float_Floor;
+      elsif Name = "Decimal.ceil" then
+         return Bi_Float_Ceil;
+      elsif Name = "Decimal.round" then
+         return Bi_Float_Round;
+      elsif Name = "Decimal.trunc" then
+         return Bi_Float_Trunc;
+      elsif Name = "Decimal.pow" then
+         return Bi_Float_Pow;
+      elsif Name = "Decimal.atan2" then
+         return Bi_Float_Atan2;
+      elsif Name = "Decimal.to_int" then
+         return Bi_Float_To_Int;
       else
          return Bi_None;
       end if;

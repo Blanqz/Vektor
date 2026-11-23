@@ -1,6 +1,8 @@
 with Ada.Exceptions;
 with Ada.Strings;
 with Ada.Strings.Fixed;
+with Ada.Characters.Handling;
+with Ada.Numerics.Long_Elementary_Functions;
 with Ada.Strings.Unbounded; use Ada.Strings.Unbounded;
 with Ada.Text_IO;           use Ada.Text_IO;
 with Ada.Unchecked_Deallocation;
@@ -1144,6 +1146,8 @@ package body Lang.VM.Machine is
                begin
                   if Is_Heap_Pointer (V) then
                      Put_Line (To_String (Chars_Of (P, V)));
+                  elsif V = Make_None then
+                     Put_Line ("none");
                   else
                      Put_Line (Integer'Image (Integer (Unbox_Small_Int (V))));
                   end if;
@@ -1184,8 +1188,9 @@ package body Lang.VM.Machine is
             if Ins.Args_Count >= 1 then
                declare
                   Img  : constant String :=
-                    Ada.Strings.Fixed.Trim (Integer_64'Image (Unbox_Small_Int (Arg (1))),
-                                            Ada.Strings.Left);
+                    (if Arg (1) = Make_None then "none"
+                     else Ada.Strings.Fixed.Trim (Integer_64'Image (Unbox_Small_Int (Arg (1))),
+                                                  Ada.Strings.Left));
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
                   P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
@@ -1460,6 +1465,7 @@ package body Lang.VM.Machine is
                   V   : constant TW := Arg (1);
                   Msg : constant String :=
                     (if Is_Heap_Pointer (V) then To_String (Chars_Of (P, V))
+                     elsif V = Make_None then "none"
                      else Integer'Image (Integer (Unbox_Small_Int (V))));
                begin
                   Flush (Standard_Output);
@@ -1474,7 +1480,9 @@ package body Lang.VM.Machine is
          when VC.Bi_Float_To_String =>
             if Ins.Args_Count >= 1 then
                declare
-                  Img  : constant String := Format_Decimal (Unbox_Float (P, Arg (1)));
+                  Img  : constant String :=
+                    (if Arg (1) = Make_None then "none"
+                     else Format_Decimal (Unbox_Float (P, Arg (1))));
                   Slot : constant Natural := Alloc_Str (M, P);
                begin
                   P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
@@ -1513,6 +1521,151 @@ package body Lang.VM.Machine is
                   if Ins.Has_Dest then
                      Set_Dest (Make_Small_Int (H));
                   end if;
+               end;
+            end if;
+
+         when VC.Bi_String_Compare =>
+            if Ins.Args_Count >= 2 then
+               declare
+                  A : constant String := To_String (Chars_Of (P, Arg (1)));
+                  B : constant String := To_String (Chars_Of (P, Arg (2)));
+                  R : Integer_64 := 0;
+               begin
+                  if A < B then
+                     R := -1;
+                  elsif A > B then
+                     R := 1;
+                  end if;
+                  if Ins.Has_Dest then
+                     Set_Dest (Make_Small_Int (R));
+                  end if;
+               end;
+            end if;
+
+         when VC.Bi_String_From_Code =>
+            if Ins.Args_Count >= 1 then
+               declare
+                  N    : constant Integer_64 := Unbox_Int (P, Arg (1));
+                  Img  : constant String :=
+                    (if N >= 0 and then N <= 255 then (1 => Character'Val (Integer (N))) else "");
+                  Slot : constant Natural := Alloc_Str (M, P);
+               begin
+                  P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
+                  Promote_To_Large (P, Slot);
+                  if Ins.Has_Dest then
+                     Set_Dest (Str_Ptr (Slot));
+                  end if;
+               end;
+            end if;
+
+         when VC.Bi_String_Upper | VC.Bi_String_Lower =>
+            if Ins.Args_Count >= 1 then
+               declare
+                  Src  : constant String := To_String (Chars_Of (P, Arg (1)));
+                  Img  : String := Src;
+                  Slot : constant Natural := Alloc_Str (M, P);
+               begin
+                  for I in Img'Range loop
+                     if Ins.Builtin = VC.Bi_String_Upper then
+                        Img (I) := Ada.Characters.Handling.To_Upper (Img (I));
+                     else
+                        Img (I) := Ada.Characters.Handling.To_Lower (Img (I));
+                     end if;
+                  end loop;
+                  P.String_Pool (Slot).Chars := To_Unbounded_String (Img);
+                  Promote_To_Large (P, Slot);
+                  if Ins.Has_Dest then
+                     Set_Dest (Str_Ptr (Slot));
+                  end if;
+               end;
+            end if;
+
+         when VC.Bi_Float_Parse =>
+            declare
+               Src : constant String :=
+                 Ada.Strings.Fixed.Trim (To_String (Chars_Of (P, Arg (1))), Ada.Strings.Both);
+               V   : Long_Float;
+            begin
+               V := Long_Float'Value (Src);
+               if Ins.Has_Dest then
+                  Set_Dest (Make_Float (M, P, V));
+               end if;
+            exception
+               when others =>
+                  if Ins.Has_Dest then
+                     Set_Dest (Make_Float (M, P, 0.0));
+                  end if;
+            end;
+
+         when VC.Bi_Float_Sqrt | VC.Bi_Float_Exp | VC.Bi_Float_Ln | VC.Bi_Float_Sin |
+              VC.Bi_Float_Cos | VC.Bi_Float_Tan | VC.Bi_Float_Atan | VC.Bi_Float_Floor |
+              VC.Bi_Float_Ceil | VC.Bi_Float_Round | VC.Bi_Float_Trunc =>
+            if Ins.Args_Count >= 1 then
+               declare
+                  X : constant Long_Float := Unbox_Float (P, Arg (1));
+                  R : Long_Float;
+               begin
+                  case Ins.Builtin is
+                     when VC.Bi_Float_Sqrt  => R := Ada.Numerics.Long_Elementary_Functions.Sqrt (X);
+                     when VC.Bi_Float_Exp   => R := Ada.Numerics.Long_Elementary_Functions.Exp (X);
+                     when VC.Bi_Float_Ln    => R := Ada.Numerics.Long_Elementary_Functions.Log (X);
+                     when VC.Bi_Float_Sin   => R := Ada.Numerics.Long_Elementary_Functions.Sin (X);
+                     when VC.Bi_Float_Cos   => R := Ada.Numerics.Long_Elementary_Functions.Cos (X);
+                     when VC.Bi_Float_Tan   => R := Ada.Numerics.Long_Elementary_Functions.Tan (X);
+                     when VC.Bi_Float_Atan  => R := Ada.Numerics.Long_Elementary_Functions.Arctan (X);
+                     when VC.Bi_Float_Floor => R := Long_Float'Floor (X);
+                     when VC.Bi_Float_Ceil  => R := Long_Float'Ceiling (X);
+                     when VC.Bi_Float_Round =>
+                        R := Long_Float'Rounding (X);
+                     when others            => R := Long_Float'Truncation (X);
+                  end case;
+                  if Ins.Has_Dest then
+                     Set_Dest (Make_Float (M, P, R));
+                  end if;
+               exception
+                  when others =>
+                     if Ins.Has_Dest then
+                        Set_Dest (Make_Float (M, P, 0.0));
+                     end if;
+               end;
+            end if;
+
+         when VC.Bi_Float_Pow | VC.Bi_Float_Atan2 =>
+            if Ins.Args_Count >= 2 then
+               declare
+                  X : constant Long_Float := Unbox_Float (P, Arg (1));
+                  Y : constant Long_Float := Unbox_Float (P, Arg (2));
+                  R : Long_Float;
+               begin
+                  if Ins.Builtin = VC.Bi_Float_Pow then
+                     R := Ada.Numerics.Long_Elementary_Functions."**" (X, Y);
+                  else
+                     R := Ada.Numerics.Long_Elementary_Functions.Arctan (Y, X);
+                  end if;
+                  if Ins.Has_Dest then
+                     Set_Dest (Make_Float (M, P, R));
+                  end if;
+               exception
+                  when others =>
+                     if Ins.Has_Dest then
+                        Set_Dest (Make_Float (M, P, 0.0));
+                     end if;
+               end;
+            end if;
+
+         when VC.Bi_Float_To_Int =>
+            if Ins.Args_Count >= 1 then
+               declare
+                  X : constant Long_Float := Unbox_Float (P, Arg (1));
+               begin
+                  if Ins.Has_Dest then
+                     Set_Dest (Make_Small_Int (Integer_64 (Long_Float'Truncation (X))));
+                  end if;
+               exception
+                  when others =>
+                     if Ins.Has_Dest then
+                        Set_Dest (Zero);
+                     end if;
                end;
             end if;
 
