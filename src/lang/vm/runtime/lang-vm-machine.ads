@@ -1,3 +1,4 @@
+with Ada.Unchecked_Deallocation;
 with Ada.Containers.Vectors;
 with GNAT.Sockets;
 with Ada.Containers.Indefinite_Hashed_Maps;
@@ -199,14 +200,7 @@ package Lang.VM.Machine is
    procedure Verify_Roots (M : in out Machine);
    function Last_Result (M : Machine) return TW;
 
-   procedure Maybe_GC_At_Safepoint (M : in out Machine; P : Process_Access);
-   procedure Compact_Strings (M : in out Machine; P : Process_Access);
-   procedure Run_Process_Drops (M : in out Machine; P : Process_Access);
 
-   function Alloc_Large_Buffer (P : Process_Access) return Natural;
-   procedure Retain_Large_Buffer (P : Process_Access; Id : Natural);
-   procedure Release_Large_Buffer (P : Process_Access; Id : Natural);
-   procedure Promote_To_Large (P : Process_Access; Slot : Natural);
 
    function Str_Slot (P : Process_Access; W : TW) return Natural;
    function Chars_Of (P : Process_Access; W : TW) return Ada.Strings.Unbounded.Unbounded_String;
@@ -220,4 +214,18 @@ package Lang.VM.Machine is
    function Is_Int_Box (P : Process_Access; W : TW) return Boolean;
 
    function Str_At (P : Process_Access; I : Natural) return access Str_Entry;
+   function Obj_At (P : Process_Access; I : Natural) return access Obj_Entry;
+   function VT_At (P : Process_Access; I : Natural) return access VTable_Entry;
+   function Box_At (P : Process_Access; I : Natural) return access Box_Entry;
+
+   procedure Free_Values is new Ada.Unchecked_Deallocation (Value_Array, Value_Array_Access);
+   procedure Free_Natural_Array is new Ada.Unchecked_Deallocation (VC.Natural_Array, VC.Natural_Array_Access);
+   procedure Free_Frames is new Ada.Unchecked_Deallocation (Frame_Array, Frame_Array_Access);
+   procedure Free_Index is new Ada.Unchecked_Deallocation (Index_Array, Index_Array_Access);
+   function Str_Ptr (Slot : Natural) return TW;
+   function Obj_Ptr (Slot : Natural) return TW;
+   function Box_Ptr (Slot : Natural) return TW;
+   function Obj_Slot (P : Process_Access; W : TW) return Natural;
+   function Box_Slot (P : Process_Access; W : TW) return Natural;
+
 end Lang.VM.Machine;

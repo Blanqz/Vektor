@@ -5,7 +5,7 @@ project Vektor is
    type Os_Type is ("linux", "windows");
    Os : Os_Type := external ("VEKTOR_OS", "linux");
 
-   Common_Dirs := ("src", "src/lang", "src/lang/vm", "src/lang/vm/core", "src/lang/vm/ir", "src/lang/vm/runtime", "backend");
+   Common_Dirs := ("src", "src/lang", "src/lang/vm", "src/lang/vm/core", "src/lang/vm/ir", "src/lang/vm/ir/text", "src/lang/vm/ir/text/parse_ops", "src/lang/vm/runtime", "src/lang/vm/runtime/allocator", "src/lang/vm/runtime/machine", "src/lang/vm/runtime/machine/api", "src/lang/vm/runtime/machine/builtins", "src/lang/vm/runtime/machine/exec", "src/lang/vm/runtime/machine/heap", "src/lang/vm/runtime/machine/process", "src/lang/vm/runtime/machine/values", "backend");
 
    case Os is
       when "linux" =>
